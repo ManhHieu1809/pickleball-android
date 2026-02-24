@@ -1,0 +1,35 @@
+<resources>
+    <string name="app_name">Pickleball</string>
+
+    <!-- Trang chủ -->
+    <string name="greeting">Chào %s! 👋</string>
+    <string name="greeting_default">Chào Hùng! 👋</string>
+
+    <!-- Stats Cards -->
+    <string name="stat_elo_title">Xếp hạng Elo</string>
+    <string name="stat_elo_value">1500</string>
+    <string name="stat_reputation_title">Uy tín</string>
+    <string name="stat_reputation_value">98%%</string>
+    <string name="stat_membership_title">Thành viên</string>
+    <string name="stat_membership_value">Pro</string>
+
+    <!-- Buttons -->
+    <string name="btn_find_match_ai">Tìm Trận Ghép A.I.</string>
+    <string name="btn_book_court">Tự Đặt Sân Nhóm</string>
+
+    <!-- Section Headers -->
+    <string name="section_upcoming_matches">Trận Chờ Của Bạn</string>
+    <string name="section_featured_courts">Khu Sân Nổi Bật</string>
+
+    <!-- Bottom Navigation -->
+    <string name="nav_home">Trang chủ</string>
+    <string name="nav_schedule">Lịch Trận</string>
+    <string name="nav_community">Cộng Đồng</string>
+    <string name="nav_profile">Cá Nhân</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_avatar">Avatar người dùng</string>
+    <string name="cd_notification">Thông báo</string>
+    <string name="cd_court_image">Hình ảnh sân</string>
+    <string name="cd_match_image">Hình ảnh trận đấu</string>
+</resources>
