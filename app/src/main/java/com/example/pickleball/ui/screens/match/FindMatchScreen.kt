@@ -25,18 +25,24 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import com.example.pickleball.data.model.CasualMatchDTO
+import com.example.pickleball.data.model.UiState
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.navigation.navigateToTab
 import com.example.pickleball.ui.screens.home.components.BottomNav
 import com.example.pickleball.ui.screens.home.components.HomeTab
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.BookingViewModel
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 val SoftMint = Color(0xFFD6FFF3)
 val CoolGray = Color(0xFFE8EBF0)
@@ -45,8 +51,16 @@ val CoolGray = Color(0xFFE8EBF0)
 fun FindMatchScreen(
     navController: NavController,
     onBackClick: () -> Unit,
-    onMatchClick: (String) -> Unit
+    onMatchClick: (String) -> Unit,
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ) {
+    val matchesState by bookingViewModel.casualMatchesState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        bookingViewModel.loadAvailableCasualMatches()
+    }
+
+    val matches = (matchesState as? UiState.Success<List<CasualMatchDTO>>)?.data ?: emptyList()
     Scaffold(
         containerColor = Color.White,
         topBar = { FindMatchTopBar(onBackClick) },
@@ -56,7 +70,7 @@ fun FindMatchScreen(
                 onTabSelected = { tab ->
                     when (tab) {
                         HomeTab.HOME -> navController.navigateToTab(Routes.HOME)
-                        HomeTab.MATCHES -> { /* Đang ở đây */ }
+                        HomeTab.MATCHES -> { /* Already here */ }
                         HomeTab.COURTS -> navController.navigateToTab(Routes.FIND_COURT)
                         HomeTab.BOOKINGS -> navController.navigateToTab(Routes.MY_BOOKINGS)
                         HomeTab.PROFILE -> navController.navigateToTab(Routes.PROFILE)
@@ -106,11 +120,26 @@ fun FindMatchScreen(
             ) {
                 item { SegmentedFilter() }
                 item { HorizontalChipList() }
-                items(sampleMatches) { match ->
-                    MatchCard(
-                        match = match,
-                        onClick = { onMatchClick("dummy_match_id_123") }
-                    )
+
+                if (matchesState is UiState.Loading) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = PrimaryGreen)
+                        }
+                    }
+                } else if (matches.isEmpty() && matchesState is UiState.Success) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            Text("No casual matches available right now.", color = NavyDeep.copy(0.6f))
+                        }
+                    }
+                } else {
+                    items(matches) { match ->
+                        MatchCardDynamic(
+                            match = match,
+                            onClick = { onMatchClick(match.booking.id.toString()) }
+                        )
+                    }
                 }
             }
         }
@@ -193,7 +222,7 @@ fun FindMatchTopBar(onBackClick: () -> Unit) {
                 BasicTextField(
                     value = "",
                     onValueChange = {},
-                    textStyle = TextStyle(color = NavyDeep, fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                    textStyle = androidx.compose.ui.text.TextStyle(color = NavyDeep, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                     singleLine = true,
                     decorationBox = { innerTextField ->
                         if (true) Text("Search matches, courts, or players...", color = NavyDeep.copy(0.4f), fontSize = 14.sp)
@@ -281,7 +310,7 @@ fun MatchCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable{ onClick() },
+            .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = CoolGray),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -322,8 +351,8 @@ fun MatchCard(
 
                     // Badge & Time
                     Column(horizontalAlignment = Alignment.End) {
-                        val badgeColor = if(match.type == "Casual") SoftMint else NavyDeep
-                        val badgeTextColor = if(match.type == "Casual") NavyDeep else Color.White
+                        val badgeColor = if (match.type == "Casual") SoftMint else NavyDeep
+                        val badgeTextColor = if (match.type == "Casual") NavyDeep else Color.White
 
                         Surface(
                             color = badgeColor,
@@ -361,14 +390,13 @@ fun MatchCard(
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .padding(start = (index * 24).dp) // Overlap effect
+                                        .padding(start = (index * 24).dp)
                                         .size(32.dp)
                                         .clip(CircleShape)
                                         .border(2.dp, CoolGray, CircleShape)
                                         .zIndex(match.players.size - index.toFloat())
                                 )
                             }
-                            // "+1" Bubble if needed (Example logic)
                             if (match.players.size < 2 && !match.isFull) {
                                 Box(
                                     modifier = Modifier
@@ -398,13 +426,12 @@ fun MatchCard(
                         enabled = !match.isFull,
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (match.isFull) Color.White else PrimaryGreen,
-                            contentColor = if (match.isFull) NavyDeep.copy(0.4f) else NavyDeep,
+                            containerColor = if (match.isFull) NavyDeep.copy(0.4f) else NavyDeep,
                             disabledContainerColor = Color.White,
                             disabledContentColor = NavyDeep.copy(0.4f)
                         ),
-                        border = if(match.isFull) BorderStroke(1.dp, CoolGray) else null,
-                        elevation = if(match.isFull) ButtonDefaults.buttonElevation(0.dp) else ButtonDefaults.buttonElevation(2.dp),
+                        border = if (match.isFull) BorderStroke(1.dp, CoolGray) else null,
+                        elevation = if (match.isFull) ButtonDefaults.buttonElevation(0.dp) else ButtonDefaults.buttonElevation(2.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                         modifier = Modifier.height(36.dp)
                     ) {
@@ -436,4 +463,58 @@ fun MatchCard(
             }
         }
     }
+}
+
+@Composable
+fun MatchCardDynamic(
+    match: CasualMatchDTO,
+    onClick: () -> Unit
+) {
+    // Note parser
+    var parsedElo = "N/A"
+    var parsedFormat = "Mixed"
+    val notesParts = match.booking.notes?.split("|")
+    notesParts?.forEach { part ->
+        val trimmed = part.trim()
+        if (trimmed.startsWith("Elo:")) {
+            parsedElo = trimmed.removePrefix("Elo:").trim().toFloatOrNull()?.toInt()?.toString() ?: "N/A"
+        }
+        if (trimmed.startsWith("Format:")) {
+            parsedFormat = trimmed.removePrefix("Format:").trim()
+        }
+    }
+
+    // Date/Time Parsing
+    var dayStr = "TBD"
+    var dateStr = "TBD"
+    var timeStr = "TBD"
+    try {
+        if (match.booking.startTime != null) {
+            val ldt = LocalDateTime.parse(match.booking.startTime)
+            dayStr = ldt.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH).uppercase()
+            dateStr = ldt.dayOfMonth.toString()
+            timeStr = ldt.format(DateTimeFormatter.ofPattern("hh:mm a"))
+        }
+    } catch (e: Exception) { /* ignore */ }
+
+    val currentPlayers = match.currentPlayerCount ?: match.candidates?.size ?: 1
+    val requiredPlayers = match.requiredPlayerCount ?: 4
+    val isFull = currentPlayers >= requiredPlayers
+    val needsText = if (isFull) "Full Squad" else "Needs ${requiredPlayers - currentPlayers} more"
+
+    val matchData = MatchData(
+        day = dayStr,
+        date = dateStr,
+        title = "$parsedFormat Scramble",
+        location = match.booking.venueName ?: "Unknown Venue",
+        court = match.booking.courtName ?: "Unknown Court",
+        time = timeStr,
+        type = "Casual",
+        needsText = needsText,
+        eloText = "Avg ELO $parsedElo",
+        players = match.candidates?.map { "https://i.pravatar.cc/150?u=${it.userId}" } ?: listOf(),
+        isFull = isFull
+    )
+
+    MatchCard(match = matchData, onClick = onClick)
 }

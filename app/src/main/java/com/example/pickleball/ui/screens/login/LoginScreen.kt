@@ -37,18 +37,39 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.pickleball.R
+import com.example.pickleball.data.model.UiState
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.AuthViewModel
 
 @Composable
 fun LoginScreen(
     onBack: () -> Unit,
     onRegisterClick: () -> Unit,
-    onLoginSuccess: () -> Unit
+    onLoginSuccess: () -> Unit,
+    authViewModel: AuthViewModel = hiltViewModel()
 ){
+    val loginState by authViewModel.loginState.collectAsStateWithLifecycle()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // React to login state changes
+    LaunchedEffect(loginState) {
+        when (loginState) {
+            is UiState.Success -> {
+                authViewModel.resetLoginState()
+                onLoginSuccess()
+            }
+            is UiState.Error -> {
+                errorMessage = (loginState as UiState.Error).message
+            }
+            else -> {}
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(BackgroundLight)){
         // Background Gradient
@@ -181,13 +202,40 @@ fun LoginScreen(
 
                     Spacer(Modifier.height(20.dp))
 
+                    // Error message
+                    if (errorMessage != null) {
+                        Text(
+                            text = errorMessage!!,
+                            color = Color.Red,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+
                     Button(
-                        onClick = onLoginSuccess,
+                        onClick = {
+                            errorMessage = null
+                            if (email.isBlank() || password.isBlank()) {
+                                errorMessage = "Please enter email and password"
+                            } else {
+                                authViewModel.login(email.trim(), password)
+                            }
+                        },
+                        enabled = loginState !is UiState.Loading,
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen, contentColor = NavyDeep)
                     ) {
-                        Text("LOG IN", style = MaterialTheme.typography.labelLarge)
+                        if (loginState is UiState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = NavyDeep,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("LOG IN", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }

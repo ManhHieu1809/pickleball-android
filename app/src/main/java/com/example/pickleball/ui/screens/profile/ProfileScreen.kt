@@ -11,7 +11,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -29,10 +29,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import com.example.pickleball.data.model.UiState
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.navigation.navigateToTab
 import com.example.pickleball.ui.screens.booking.CoolGray
@@ -40,6 +43,7 @@ import com.example.pickleball.ui.screens.booking.SoftMint
 import com.example.pickleball.ui.screens.home.components.BottomNav
 import com.example.pickleball.ui.screens.home.components.HomeTab
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.ProfileViewModel
 
 
 val CardGradient = Brush.linearGradient(
@@ -50,10 +54,40 @@ val GoldColor = Color(0xFFFFD700)
 @Composable
 fun ProfileScreen(
     navController: NavController,
-    onBackClick: () -> Unit = {}
+    onBackClick: () -> Unit = {},
+    profileViewModel: ProfileViewModel = hiltViewModel()
 ) {
+    // Load dữ liệu user thật từ API
+    LaunchedEffect(Unit) {
+        profileViewModel.loadCurrentUser()
+    }
+    val userState by profileViewModel.userState.collectAsState()
+
+    val displayName = when (userState) {
+        is UiState.Success -> (userState as UiState.Success).data.fullName
+        else -> "Loading..."
+    }
+    val displayLocation = when (userState) {
+        is UiState.Success -> (userState as UiState.Success).data.location ?: "Unknown"
+        else -> ""
+    }
+    val displayRole = when (userState) {
+        is UiState.Success -> (userState as UiState.Success).data.role ?: "Player"
+        else -> "Player"
+    }
+    val displayAvatarUrl = when (userState) {
+        is UiState.Success -> (userState as UiState.Success).data.avatarUrl ?: ""
+        else -> ""
+    }
+    val displayEmail = when (userState) {
+        is UiState.Success -> (userState as UiState.Success).data.email
+        else -> ""
+    }
+    val displayId = when (userState) {
+        is UiState.Success -> "PKL-${(userState as UiState.Success).data.id}"
+        else -> "PKL-..."
+    }
     Scaffold(
-        topBar = { ProfileTopBar(onBackClick) },
         bottomBar = {
             BottomNav(
                 selectedTab = HomeTab.PROFILE,
@@ -63,491 +97,626 @@ fun ProfileScreen(
                         HomeTab.MATCHES -> navController.navigateToTab(Routes.FIND_MATCH)
                         HomeTab.COURTS -> navController.navigateToTab(Routes.FIND_COURT)
                         HomeTab.BOOKINGS -> navController.navigateToTab(Routes.MY_BOOKINGS)
-                        HomeTab.PROFILE -> { /* Đang ở đây */ }
+                        HomeTab.PROFILE -> { }
                     }
                 }
             )
-        }
+        },
+        containerColor = Color.Transparent
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
-            // Background Mesh Gradient
             MeshBackground()
-
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
-                    .padding(horizontal = 24.dp),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                    .padding(bottom = paddingValues.calculateBottomPadding()),
+                contentPadding = PaddingValues(top = 0.dp, bottom = 16.dp)
             ) {
-                // 1. Main Profile Card
-                item { MainProfileCard(
-                    onLeaderboardClick = {
-                        navController.navigate(Routes.LEADERBOARD)
-                    }
+                // 1. Header: Avatar + Info + Settings
+                item { ProfileHeaderSection(
+                    displayName = displayName,
+                    displayLocation = displayLocation,
+                    displayRole = displayRole,
+                    displayAvatarUrl = displayAvatarUrl,
+                    displayId = displayId
                 ) }
 
-                item { QuickActionsRow(navController) }
-                item { SeasonStatsSection() }
+                // 2. Leaderboard Banner
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        LeaderboardBanner(onClick = { navController.navigate(Routes.LEADERBOARD) })
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+
+                // 3. Quick Actions (4 columns)
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        QuickActionsGrid(navController)
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(28.dp)) }
+
+                // 4. Season Stats
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        SeasonStatsSection()
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(28.dp)) }
+
+                // 5. Prestige Titles
                 item { EquippedTitlesSection() }
-                item { PreferencesSection() }
+
+                item { Spacer(modifier = Modifier.height(28.dp)) }
+
+                // 6. Account
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        AccountSection()
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(12.dp)) }
             }
         }
     }
 }
 
+// ─── 1. Profile Header ───────────────────────────────────────────────────────
+
 @Composable
-fun ProfileTopBar(onBackClick: () -> Unit) {
+fun ProfileHeaderSection(
+    displayName: String = "Loading...",
+    displayLocation: String = "",
+    displayRole: String = "Player",
+    displayAvatarUrl: String = "",
+    displayId: String = "PKL-..."
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "ping")
+    val pingAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.75f, targetValue = 0f, label = "ping_alpha",
+        animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Restart)
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
-        IconButton(
-            onClick = onBackClick,
-            modifier = Modifier
-                .size(40.dp)
-                .background(Color.Transparent, CircleShape)
+        // Avatar + Info
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(1f)
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NavyDeep)
+            // Avatar with gradient ring
+            Box(modifier = Modifier.size(68.dp), contentAlignment = Alignment.BottomEnd) {
+                // Glow
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .background(PrimaryGreen.copy(alpha = 0.25f), CircleShape)
+                        .align(Alignment.Center)
+                )
+                // Gradient ring + image
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(
+                            Brush.linearGradient(listOf(PrimaryGreen, SoftMint, Color.White)),
+                            CircleShape
+                        )
+                        .padding(2.dp)
+                        .align(Alignment.Center)
+                ) {
+                    AsyncImage(
+                        model = displayAvatarUrl.ifEmpty { "https://ui-avatars.com/api/?name=${displayName}&background=0D8ABC&color=fff&size=128" },
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .border(2.dp, Color.White, CircleShape)
+                            .background(NavyDeep),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                // Verified badge
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .background(NavyDeep, CircleShape)
+                        .border(2.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Verified,
+                        contentDescription = null,
+                        tint = PrimaryGreen,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+
+            // Name, location, badges
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    displayName,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    color = NavyDeep,
+                    lineHeight = 22.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = NavyDeep.copy(0.6f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        displayLocation,
+                        fontSize = 12.sp,
+                        color = NavyDeep.copy(0.6f),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // ID badge
+                    Box(
+                        modifier = Modifier
+                            .background(NavyDeep.copy(0.06f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            displayId,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NavyDeep
+                        )
+                    }
+                    // PRO badge
+                    Box(
+                        modifier = Modifier
+                            .background(PrimaryGreen.copy(0.12f), RoundedCornerShape(6.dp))
+                            .border(1.dp, PrimaryGreen.copy(0.25f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(modifier = Modifier.size(7.dp), contentAlignment = Alignment.Center) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(PrimaryGreen.copy(pingAlpha), CircleShape)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(5.dp)
+                                        .background(PrimaryGreen, CircleShape)
+                                )
+                            }
+                            Text(
+                                displayRole.uppercase(),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                color = NavyDeep,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            }
         }
 
-        Text(
-            text = "Player Profile",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = NavyDeep
-        )
-
+        // Settings icon
         IconButton(
-            onClick = { /* Settings */ },
-            modifier = Modifier
-                .size(40.dp)
-                .background(Color.Transparent, CircleShape)
+            onClick = { },
+            modifier = Modifier.size(40.dp)
         ) {
             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = NavyDeep)
         }
     }
 }
 
+// ─── 2. Leaderboard Banner ───────────────────────────────────────────────────
+
 @Composable
-fun MainProfileCard(
-    onLeaderboardClick: () -> Unit
-) {
+fun LeaderboardBanner(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = NavyDeep.copy(0.3f))
-            .clip(RoundedCornerShape(24.dp))
-            .background(CardGradient)
+            .shadow(8.dp, RoundedCornerShape(14.dp), spotColor = NavyDeep.copy(0.2f))
+            .clip(RoundedCornerShape(14.dp))
+            .background(NavyDeep)
+            .clickable { onClick() }
     ) {
+        // Green gradient tint on left
         Box(
             modifier = Modifier
-                .size(200.dp)
-                .offset(x = 100.dp, y = (-80).dp)
-                .align(Alignment.TopEnd)
-                .background(PrimaryGreen.copy(0.15f), CircleShape)
-                .blur(radius = 50.dp)
-        )
-
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column {
-                    Text("MEMBER ID", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.4f), letterSpacing = 1.sp)
-                    Text("PKL-883920", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen, letterSpacing = 1.sp)
-                }
-
-                Surface(
-                    color = Color.White.copy(0.1f),
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, Color.White.copy(0.2f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(modifier = Modifier.size(6.dp).background(PrimaryGreen, CircleShape))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("PRO MEMBER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp)
-                            .background(PrimaryGreen.copy(0.2f), CircleShape)
+                .matchParentSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(PrimaryGreen.copy(0.18f), PrimaryGreen.copy(0.04f), Color.Transparent)
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(90.dp)
-                            .background(Brush.verticalGradient(listOf(PrimaryGreen, SoftMint, Color.Transparent)), CircleShape)
-                            .padding(3.dp)
-                    ) {
-                        AsyncImage(
-                            model = "https://lh3.googleusercontent.com/aida-public/AB6AXuBjq88HLWVFED9C6GjSps3jYZX4nDTmPbRspIbca2VY1lTekGmdDYZqyIweozI7wtMPc3WfCux0CUy2gFjxT_yUg_sGRfSy0jK1kJ4128TNBUmsiWUn8d-ENIdhvx4ECa5DYyPzdzr30jMnnjpRaxxizaPzPTqlpSgLQIN5F50_qZqwqccQHBbFBxLV_u_pFCge89YtNeOQ8t7irn-3EHy0RMHN5zX5SzkjX-OSpsDf8Tt2jlXb1VxFjpTKgvMtRN4Sc8WGF4EO-OtM", // Avatar URL
-                            contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape)
-                                .border(4.dp, NavyDeep, CircleShape)
-                                .background(NavyDeep),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                    Icon(
-                        Icons.Default.Verified,
-                        contentDescription = null,
-                        tint = PrimaryGreen,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .align(Alignment.BottomEnd)
-                            .offset(x = (-4).dp, y = (-4).dp)
-                            .background(NavyDeep, CircleShape)
-                            .border(2.dp, NavyDeep, CircleShape)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text("Marcus Chen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color.White)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.LocationOn, null, tint = Color.White.copy(0.6f), modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("LA, California", fontSize = 12.sp, color = Color.White.copy(0.6f))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        onLeaderboardClick()
-                    },
-                color = NavyDeep.copy(0.5f),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color.White.copy(0.1f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(Color.White.copy(0.1f), RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Outlined.Leaderboard, null, tint = PrimaryGreen)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text("GLOBAL RANKING", fontSize = 10.sp, color = Color.White.copy(0.5f), fontWeight = FontWeight.Bold)
-                            Text("#42 Top Contender", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White.copy(0.5f))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-            Divider(color = Color.White.copy(0.1f))
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column {
-                    Text("MEMBER SINCE", fontSize = 10.sp, color = Color.White.copy(0.4f), fontWeight = FontWeight.Bold)
-                    Text("SEP 2023", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                }
-                Text(
-                    "EDIT PROFILE",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryGreen,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier
-                        .clickable { }
-                        .padding(4.dp)
                 )
-            }
-        }
-    }
-}
-
-@Composable
-fun QuickActionsRow(navController: NavController) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        QuickActionItem(
-            label = "Wallet",
-            icon = Icons.Outlined.AccountBalanceWallet,
-            modifier = Modifier.weight(1f),
-            onClick = { navController.navigate(Routes.WALLET) }
         )
-        QuickActionItem(
-            label = "Bookings",
-            icon = Icons.Outlined.CalendarMonth,
-            modifier = Modifier.weight(1f),
-            onClick = { navController.navigate(Routes.MY_BOOKINGS) }
-        )
-        QuickActionItem(
-            label = "Matches",
-            icon = Icons.Outlined.History,
-            modifier = Modifier.weight(1f),
-            onClick = { navController.navigate(Routes.MATCH_HISTORY) }
-        )
-    }
-}
-
-@Composable
-fun QuickActionItem(label: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit = {}) {
-    Surface(
-        modifier = modifier
-            .height(80.dp)
-            .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, CoolGray),
-        shadowElevation = 2.dp
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(SoftMint.copy(0.4f), CircleShape),
-                contentAlignment = Alignment.Center
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(icon, null, tint = NavyDeep, modifier = Modifier.size(20.dp))
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(Color.White.copy(0.1f), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color.White.copy(0.05f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Leaderboard, contentDescription = null, tint = PrimaryGreen)
+                }
+                Column {
+                    Text(
+                        "GLOBAL RANK",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryGreen.copy(0.85f),
+                        letterSpacing = 1.5.sp
+                    )
+                    Text(
+                        "#42 Top Contender",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDeep)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("VIEW", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.4f), letterSpacing = 1.sp)
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
+
+// ─── 3. Quick Actions Grid (4 columns) ───────────────────────────────────────
+
+@Composable
+fun QuickActionsGrid(navController: NavController) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        QuickActionTile(label = "Wallet", icon = Icons.Outlined.AccountBalanceWallet, modifier = Modifier.weight(1f)) {
+            navController.navigate(Routes.WALLET)
+        }
+        QuickActionTile(label = "Bookings", icon = Icons.Outlined.CalendarMonth, modifier = Modifier.weight(1f)) {
+            navController.navigate(Routes.MY_BOOKINGS)
+        }
+        QuickActionTile(label = "History", icon = Icons.Outlined.History, modifier = Modifier.weight(1f)) {
+            navController.navigate(Routes.MATCH_HISTORY)
+        }
+        QuickActionTile(label = "Awards", icon = Icons.Outlined.EmojiEvents, modifier = Modifier.weight(1f)) {
+            navController.navigate(Routes.LEADERBOARD)
+        }
+    }
+}
+
+@Composable
+fun QuickActionTile(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+    Column(
+        modifier = modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Surface(
+            modifier = Modifier.aspectRatio(1f),
+            shape = RoundedCornerShape(14.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, NavyDeep.copy(0.1f)),
+            shadowElevation = 2.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = label, tint = NavyDeep, modifier = Modifier.size(24.dp))
+            }
+        }
+        Text(
+            label.uppercase(),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = NavyDeep.copy(0.55f),
+            letterSpacing = 0.8.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+// ─── 4. Season Stats ─────────────────────────────────────────────────────────
 
 @Composable
 fun SeasonStatsSection() {
-    Column {
-        Text("SEASON STATISTICS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f), letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatBox(
-                icon = Icons.Default.SportsTennis,
-                value = "82",
-                label = "MATCHES",
-                modifier = Modifier.weight(1f)
-            )
-            StatBox(
-                icon = Icons.Default.Percent,
-                value = "68%",
-                label = "WIN RATE",
-                modifier = Modifier.weight(1f),
-                showGraph = true
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatBox(
-                icon = Icons.Default.EmojiEvents,
-                value = "56",
-                label = "WINS",
-                modifier = Modifier.weight(1f),
-                contentAlign = Alignment.BottomStart
-            )
-            StatBox(
-                icon = Icons.Default.SentimentDissatisfied,
-                value = "26",
-                label = "LOSSES",
-                modifier = Modifier.weight(1f),
-                contentAlign = Alignment.BottomStart
-            )
-        }
-    }
-}
-
-@Composable
-fun StatBox(
-    icon: ImageVector,
-    value: String,
-    label: String,
-    modifier: Modifier,
-    showGraph: Boolean = false,
-    contentAlign: Alignment = Alignment.TopStart
-) {
-    Surface(
-        modifier = modifier.height(100.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = CoolGray,
-        border = BorderStroke(1.dp, Color.White)
-    ) {
-        Box(modifier = Modifier.padding(16.dp)) {
-            Icon(
-                icon, null,
-                tint = NavyDeep.copy(0.3f),
-                modifier = Modifier.align(Alignment.TopStart).size(24.dp)
-            )
-
-            Column(modifier = Modifier.align(if (contentAlign == Alignment.BottomStart) Alignment.BottomStart else Alignment.CenterStart).padding(top = 24.dp)) {
-                Text(value, fontSize = 28.sp, fontWeight = FontWeight.Black, color = NavyDeep)
-                Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.5f))
-            }
-
-            if (showGraph) {
-                Icon(
-                    Icons.Default.TrendingUp, null,
-                    tint = Color.White,
-                    modifier = Modifier.align(Alignment.TopEnd).size(40.dp).alpha(0.5f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun EquippedTitlesSection() {
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("EQUIPPED TITLES", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f), letterSpacing = 1.sp)
-            Text("VIEW ALL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
+            Text(
+                "SEASON 24 STATS",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyDeep.copy(0.4f),
+                letterSpacing = 1.sp
+            )
+            Box(
+                modifier = Modifier
+                    .background(PrimaryGreen.copy(0.12f), RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text("LIVE", fontSize = 9.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
+            }
         }
-        Spacer(modifier = Modifier.height(12.dp))
 
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item {
-                TitleItem(
-                    name = "Champion",
-                    icon = Icons.Default.EmojiEvents,
-                    isActive = true,
-                    color = PrimaryGreen
-                )
-            }
-            item {
-                TitleItem(
-                    name = "Hot Streak",
-                    icon = Icons.Default.LocalFireDepartment,
-                    isActive = false,
-                    color = NavyDeep
-                )
-            }
-            item {
-                TitleItem(
-                    name = "Power Serve",
-                    icon = Icons.Default.Bolt,
-                    isActive = false,
-                    color = NavyDeep
-                )
-            }
-            item {
-                TitleItem(
-                    name = "Locked",
-                    icon = Icons.Default.Lock,
-                    isActive = false,
-                    color = NavyDeep.copy(0.3f),
-                    isLocked = true
-                )
+            // Matches
+            StatCard(
+                icon = Icons.Default.SportsTennis,
+                value = "82",
+                label = "Matches",
+                modifier = Modifier.weight(1f)
+            )
+            // Win Rate
+            StatCard(
+                icon = Icons.Default.Percent,
+                value = "68%",
+                label = "Win Rate",
+                modifier = Modifier.weight(1f)
+            )
+            // Win / Loss stacked
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MiniStatCard(value = "56", label = "Wins", dotColor = PrimaryGreen)
+                MiniStatCard(value = "26", label = "Loss", dotColor = Color(0xFFF87171))
             }
         }
     }
 }
 
 @Composable
-fun TitleItem(name: String, icon: ImageVector, isActive: Boolean, color: Color, isLocked: Boolean = false) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+fun StatCard(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = CoolGray.copy(0.3f),
+        border = BorderStroke(1.dp, Color.Transparent)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = NavyDeep.copy(0.3f), modifier = Modifier.size(20.dp))
+            Text(value, fontSize = 26.sp, fontWeight = FontWeight.Black, color = NavyDeep, lineHeight = 28.sp)
+            Text(label.uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f), letterSpacing = 0.8.sp)
+        }
+    }
+}
+
+@Composable
+fun MiniStatCard(value: String, label: String, dotColor: Color) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = CoolGray.copy(0.3f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(value, fontSize = 14.sp, fontWeight = FontWeight.Black, color = NavyDeep)
+                Text(label.uppercase(), fontSize = 7.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f), letterSpacing = 0.8.sp)
+            }
+            Box(modifier = Modifier.size(7.dp).background(dotColor, CircleShape))
+        }
+    }
+}
+
+// ─── 5. Prestige Titles ───────────────────────────────────────────────────────
+
+@Composable
+fun EquippedTitlesSection() {
+    val infiniteTransition = rememberInfiniteTransition(label = "aura")
+    val auraAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f, targetValue = 1f, label = "aura_alpha",
+        animationSpec = infiniteRepeatable(tween(2000, easing = EaseInOut), RepeatMode.Reverse)
+    )
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "PRESTIGE TITLES",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyDeep.copy(0.4f),
+                letterSpacing = 1.sp
+            )
+            Text(
+                "VIEW ALL",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryGreen,
+                letterSpacing = 0.8.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                TitleBadge(
+                    name = "Champion",
+                    icon = Icons.Default.EmojiEvents,
+                    isActive = true,
+                    auraAlpha = auraAlpha
+                )
+            }
+            item {
+                TitleBadge(name = "Hot Streak", icon = Icons.Default.LocalFireDepartment, isActive = false)
+            }
+            item {
+                TitleBadge(name = "Power Serve", icon = Icons.Default.Bolt, isActive = false)
+            }
+            item {
+                TitleBadge(name = "Locked", icon = Icons.Default.Lock, isActive = false, isLocked = true)
+            }
+        }
+    }
+}
+
+@Composable
+fun TitleBadge(
+    name: String,
+    icon: ImageVector,
+    isActive: Boolean,
+    isLocked: Boolean = false,
+    auraAlpha: Float = 1f
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .width(88.dp)
+            .then(if (isLocked) Modifier.alpha(0.5f) else Modifier)
+    ) {
         Box(
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(76.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Glow effect for active
+            // Aura glow background
             if (isActive) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(PrimaryGreen.copy(0.2f), CircleShape)
-                        .blur(10.dp)
+                        .size(76.dp)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(PrimaryGreen.copy(0.35f * auraAlpha), Color.Transparent)
+                            ),
+                            CircleShape
+                        )
                 )
             }
 
             Surface(
-                modifier = Modifier.size(64.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = if (isActive) NavyDeep else Color.White,
-                border = BorderStroke(1.dp, if (isActive) PrimaryGreen else CoolGray),
-                shadowElevation = if (isActive) 8.dp else 2.dp
+                modifier = Modifier.size(60.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = if (isLocked) CoolGray else if (isActive) CoolGray.copy(0.35f) else Color.White,
+                border = BorderStroke(1.dp, if (isActive) CoolGray else CoolGray),
+                shadowElevation = if (isActive) 0.dp else 2.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = if (isActive) PrimaryGreen else color, modifier = Modifier.size(28.dp))
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = if (isLocked) NavyDeep.copy(0.3f) else NavyDeep,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
+
+            // Active dot indicator
+            if (isActive) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .align(Alignment.BottomCenter)
+                        .offset(y = 2.dp)
+                        .background(PrimaryGreen, CircleShape)
+                        .shadow(4.dp, CircleShape, spotColor = PrimaryGreen)
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+
         Text(
             name.uppercase(),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isActive) PrimaryGreen else color,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            fontSize = 9.sp,
+            fontWeight = if (isActive) FontWeight.Black else FontWeight.Bold,
+            color = if (isActive) NavyDeep else NavyDeep.copy(0.55f),
+            textAlign = TextAlign.Center,
+            letterSpacing = 0.8.sp,
+            lineHeight = 13.sp
         )
     }
 }
 
-@Composable
-fun PreferencesSection() {
-    Column {
-        Text("PREFERENCES", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f), letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(12.dp))
+// ─── 6. Account Section ──────────────────────────────────────────────────────
 
+@Composable
+fun AccountSection() {
+    Column {
+        Text(
+            "ACCOUNT",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = NavyDeep.copy(0.4f),
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.height(12.dp))
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             color = Color.White,
-            border = BorderStroke(1.dp, CoolGray),
-            shadowElevation = 2.dp
+            border = BorderStroke(1.dp, CoolGray.copy(0.7f)),
+            shadowElevation = 1.dp
         ) {
             Column {
-                PreferenceItem("Account Settings", Icons.Outlined.Tune)
-                Divider(color = CoolGray)
-                PreferenceItem("Notifications", Icons.Outlined.Notifications)
-                Divider(color = CoolGray)
-                PreferenceItem("Privacy & Security", Icons.Outlined.Security)
+                AccountItem(title = "Settings", icon = Icons.Outlined.Tune)
+                HorizontalDivider(color = CoolGray.copy(0.6f), thickness = 0.8.dp)
+                AccountItem(title = "Notifications", icon = Icons.Outlined.Notifications)
             }
         }
     }
 }
 
 @Composable
-fun PreferenceItem(title: String, icon: ImageVector) {
+fun AccountItem(title: String, icon: ImageVector) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -556,25 +725,28 @@ fun PreferenceItem(title: String, icon: ImageVector) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .background(CoolGray, RoundedCornerShape(8.dp)),
+                    .size(34.dp)
+                    .background(CoolGray.copy(0.5f), RoundedCornerShape(9.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = NavyDeep, modifier = Modifier.size(18.dp))
+                Icon(icon, contentDescription = null, tint = NavyDeep, modifier = Modifier.size(18.dp))
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = NavyDeep)
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = NavyDeep)
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = NavyDeep.copy(0.3f))
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = NavyDeep.copy(0.3f))
     }
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 fun Modifier.blur(radius: androidx.compose.ui.unit.Dp) = this.then(
-    Modifier.drawBehind {
-        drawRect(Color.Transparent)
-    }
+    Modifier.drawBehind { drawRect(Color.Transparent) }
 )
 
 @Composable
@@ -585,9 +757,9 @@ fun MeshBackground() {
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(SoftMint.copy(0.4f), Color.Transparent),
-                        center = Offset(1000f, 0f),
-                        radius = 800f
+                        colors = listOf(SoftMint.copy(0.55f), Color.Transparent),
+                        center = Offset(1200f, 0f),
+                        radius = 900f
                     )
                 )
         )
@@ -596,8 +768,19 @@ fun MeshBackground() {
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(PrimaryGreen.copy(0.1f), Color.Transparent),
-                        center = Offset(0f, 1500f),
+                        colors = listOf(CoolGray.copy(0.5f), Color.Transparent),
+                        center = Offset(0f, 0f),
+                        radius = 700f
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(PrimaryGreen.copy(0.12f), Color.Transparent),
+                        center = Offset(400f, 2200f),
                         radius = 800f
                     )
                 )

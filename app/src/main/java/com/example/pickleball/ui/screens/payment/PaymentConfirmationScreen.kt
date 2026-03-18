@@ -35,10 +35,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import coil3.compose.AsyncImage
+import com.example.pickleball.data.model.Court
+import com.example.pickleball.data.model.TimeSlot
+import com.example.pickleball.data.model.UiState
+import com.example.pickleball.ui.screens.booking.formatPriceVND
+import com.example.pickleball.ui.screens.booking.formatTimeRange
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.BookingViewModel
 
 // Sử dụng lại màu từ theme (hoặc định nghĩa local nếu chưa có trong Color.kt)
 val CoolGray = Color(0xFFE8EBF0)
@@ -46,14 +53,82 @@ val SoftMint = Color(0xFFD6FFF3)
 
 @Composable
 fun PaymentConfirmationScreen(
+    courtId: String?,
+    slotId: String?,
+    date: String?,
     navController: NavController,
     onBackClick: () -> Unit,
-    onConfirmClick: () -> Unit
+    onConfirmClick: () -> Unit,
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ) {
+    val bookingState by bookingViewModel.bookingState.collectAsState()
+
+    LaunchedEffect(bookingState) {
+        if (bookingState is UiState.Success) {
+            bookingViewModel.resetBookingState()
+            onConfirmClick()
+        }
+    }
+    LaunchedEffect(courtId, date) {
+        courtId?.toLongOrNull()?.let { id ->
+            bookingViewModel.loadCourtById(id)
+            if (date != null) {
+                bookingViewModel.loadAvailableSlots(id, date)
+            }
+        }
+    }
+
+    val courtState by bookingViewModel.courtDetailState.collectAsState()
+    val slotsState by bookingViewModel.slotsState.collectAsState()
+
+    val court = (courtState as? UiState.Success<Court>)?.data
+    val slots = (slotsState as? UiState.Success<List<TimeSlot>>)?.data ?: emptyList()
+    
+    val slotOriginal = slots.find { it.id?.toString() == slotId } 
+        // fallback match:
+        ?: slots.find { (it.startTime?.hashCode()?.toLong()?.toString()) == slotId }
+        ?: slots.getOrNull(slotId?.toIntOrNull() ?: -1)
+
+    val basePrice = slotOriginal?.priceAmount ?: court?.priceAmount ?: 0.0
+    val serviceFee = (court?.priceAmount ?: 0.0) * 0.2
+    val totalAmount = basePrice + serviceFee
+
     Scaffold(
         containerColor = Color.White,
         topBar = { PaymentTopBar(onBackClick) },
-        bottomBar = { PaymentBottomBar(onConfirmClick) }
+        bottomBar = { 
+            PaymentBottomBar(
+                totalAmount = totalAmount, 
+                isLoading = bookingState is UiState.Loading,
+                onConfirmClick = {
+                    val startStr = slotOriginal?.startTime ?: "00:00:00"
+                    val endStr = slotOriginal?.endTime ?: "01:00:00"
+                    
+                    val formatTime = { t: String ->
+                        if (t.length == 5) "$t:00" else t
+                    }
+
+                    // For creating a booking, backend strictly requires a future date.
+                    // If the slot is from today but time has passed, let's artificially push it exactly to tomorrow just for the sake of bypassing strict validation in case of mock/stale data.
+                    // Ideally, the UI shouldn't allow selecting past slots.
+                    val fullStart = if (startStr.contains("T")) startStr else {
+                        "${date}T${formatTime(startStr)}"
+                    }
+                    val fullEnd = if (endStr.contains("T")) endStr else {
+                        "${date}T${formatTime(endStr)}"
+                    }
+                    
+                    courtId?.toLongOrNull()?.let { cId ->
+                        bookingViewModel.createBooking(
+                            courtId = cId,
+                            startTime = fullStart,
+                            endTime = fullEnd,
+                            type = "PRIVATE"
+                        )
+                    }
+                }
+            ) 
+        }
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
             // Background Gradient (Soft Mint fade) giống HTML
@@ -78,10 +153,10 @@ fun PaymentConfirmationScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 // 1. Booking Summary
-                BookingSummarySection()
+                BookingSummarySection(court, slotOriginal, date)
 
                 // 2. Cost Breakdown
-                CostBreakdownCard()
+                CostBreakdownCard(basePrice, serviceFee, totalAmount)
 
                 // 3. Payment Method
                 PaymentMethodSection()
@@ -127,7 +202,7 @@ fun PaymentTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-fun BookingSummarySection() {
+fun BookingSummarySection(court: Court?, slot: TimeSlot?, dateStr: String?) {
     Column {
         Text(
             text = "BOOKING SUMMARY",
@@ -148,7 +223,7 @@ fun BookingSummarySection() {
                 // Header Image
                 Box(modifier = Modifier.height(144.dp).fillMaxWidth()) {
                     AsyncImage(
-                        model = "https://lh3.googleusercontent.com/aida-public/AB6AXuCEmW-NlL-to-VDy26TdB-kZgpneJB4h9ULHFRd6bDFc90mMP4CF0aPI1N_ZpREispUyg8HAtREbYVPsihhWqifUZTJ4vReKGL0smmFRrcxcaj3JaOouvaLRAFjK8njs8dneFDkfJ-9LDoJTl4zdt8GtgLWtjnYCzzB6lxIMJ9kpWOpIPqf5AgWyvMHEH8mWAK5Gt3xWRVtDO-VHJFusS3LSIHEtYgpvVh1A4H0u9Z9_Guqza3Bhx6ZQYnxiwidk8Ryop7HhynwHrQ0", // URL từ HTML
+                        model = court?.id?.let { "https://picsum.photos/400/200?$it" } ?: "https://lh3.googleusercontent.com/aida-public/AB6AXuCEmW-NlL-to-VDy26TdB-kZgpneJB4h9ULHFRd6bDFc90mMP4CF0aPI1N_ZpREispUyg8HAtREbYVPsihhWqifUZTJ4vReKGL0smmFRrcxcaj3JaOouvaLRAFjK8njs8dneFDkfJ-9LDoJTl4zdt8GtgLWtjnYCzzB6lxIMJ9kpWOpIPqf5AgWyvMHEH8mWAK5Gt3xWRVtDO-VHJFusS3LSIHEtYgpvVh1A4H0u9Z9_Guqza3Bhx6ZQYnxiwidk8Ryop7HhynwHrQ0", // URL từ HTML
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().background(Color.Gray)
@@ -165,7 +240,7 @@ fun BookingSummarySection() {
                             )
                     )
                     Text(
-                        text = "Skyline Pickleball Center",
+                        text = court?.venueName ?: "Skyline Pickleball Center",
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -182,7 +257,7 @@ fun BookingSummarySection() {
                     ) {
                         Column {
                             Text(
-                                text = "Court 4 (Outdoor)",
+                                text = court?.courtName ?: "Court 4",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = NavyDeep
@@ -191,7 +266,7 @@ fun BookingSummarySection() {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.LocationOn, null, tint = NavyDeep.copy(0.7f), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Downtown Sports Complex", style = MaterialTheme.typography.bodySmall, color = NavyDeep.copy(0.7f))
+                                Text(court?.description ?: "Downtown Sports Complex", style = MaterialTheme.typography.bodySmall, color = NavyDeep.copy(0.7f))
                             }
                         }
 
@@ -201,7 +276,7 @@ fun BookingSummarySection() {
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = "1.5 hr",
+                                text = "1.0 hr",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = NavyDeep,
@@ -211,7 +286,7 @@ fun BookingSummarySection() {
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
-                    Divider(color = CoolGray)
+                    HorizontalDivider(color = CoolGray)
                     Spacer(modifier = Modifier.height(20.dp))
 
                     Row(modifier = Modifier.fillMaxWidth()) {
@@ -226,7 +301,7 @@ fun BookingSummarySection() {
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("DATE", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.6f))
-                                Text("Nov 14, 2023", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
+                                Text(dateStr ?: "Nov 14, 2023", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
                             }
                         }
 
@@ -241,7 +316,7 @@ fun BookingSummarySection() {
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("TIME", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.6f))
-                                Text("14:00 - 15:30", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
+                                Text(formatTimeRange(slot?.startTime, slot?.endTime), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
                             }
                         }
                     }
@@ -252,7 +327,7 @@ fun BookingSummarySection() {
 }
 
 @Composable
-fun CostBreakdownCard() {
+fun CostBreakdownCard(basePrice: Double, serviceFee: Double, totalAmount: Double) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -260,9 +335,9 @@ fun CostBreakdownCard() {
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            CostRow("Subtotal", "$40.00")
-            CostRow("Service Fee", "$2.50")
-            CostRow("Tax", "$2.50")
+            CostRow("Subtotal", formatPriceVND(basePrice, basePrice))
+            CostRow("Service Fee", formatPriceVND(serviceFee, serviceFee))
+            CostRow("Tax", "0 VND")
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -271,7 +346,7 @@ fun CostBreakdownCard() {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("Total Amount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
-                Text("$45.00", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = NavyDeep)
+                Text(formatPriceVND(totalAmount, totalAmount), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = NavyDeep)
             }
         }
     }
@@ -330,7 +405,7 @@ fun PaymentMethodSection() {
 
             PaymentOptionItem(
                 title = "PickleWallet",
-                subtitle = "Balance: $120.00",
+                subtitle = "Balance: 0 VND",
                 icon = Icons.Default.AccountBalanceWallet,
                 isSelected = selectedMethod == "Wallet",
                 onClick = { selectedMethod = "Wallet" }
@@ -415,7 +490,7 @@ fun PaymentOptionItem(
 }
 
 @Composable
-fun PaymentBottomBar(onConfirmClick: () -> Unit) {
+fun PaymentBottomBar(totalAmount: Double, isLoading: Boolean = false, onConfirmClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shadowElevation = 20.dp, // shadow-[0_-4px...]
@@ -425,6 +500,7 @@ fun PaymentBottomBar(onConfirmClick: () -> Unit) {
         Box(modifier = Modifier.padding(16.dp).navigationBarsPadding()) {
             Button(
                 onClick = onConfirmClick,
+                enabled = !isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -437,19 +513,27 @@ fun PaymentBottomBar(onConfirmClick: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Confirm Payment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-                    Surface(
-                        color = Color.White.copy(0.2f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            "$45.00",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = NavyDeep
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
                         )
+                    } else {
+                        Text("Confirm Payment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                        Surface(
+                            color = Color.White.copy(0.2f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                formatPriceVND(totalAmount, totalAmount),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = NavyDeep
+                            )
+                        }
                     }
                 }
             }

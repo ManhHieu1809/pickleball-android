@@ -19,7 +19,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,13 +32,30 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.pickleball.data.model.Booking
+import com.example.pickleball.data.model.UiState
+import com.example.pickleball.viewmodel.BookingViewModel
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import com.example.pickleball.ui.theme.*
 
 @Composable
 fun BookingDetailsScreen(
+    bookingId: String?,
     navController: NavController,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ) {
+    val bookingState by bookingViewModel.bookingState.collectAsState()
+    val booking = (bookingState as? UiState.Success)?.data
+
+    LaunchedEffect(bookingId) {
+        bookingId?.toLongOrNull()?.let { id ->
+            bookingViewModel.loadBookingDetail(id)
+        }
+    }
+
     Scaffold(
         containerColor = Color.White,
         topBar = {
@@ -61,22 +78,32 @@ fun BookingDetailsScreen(
                     )
             )
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // 1. Venue Header
-                VenueHeaderSection()
+            if (bookingState is UiState.Loading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = PrimaryGreen)
+                }
+            } else if (booking != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    // 1. Venue Header
+                    VenueHeaderSection(booking)
 
-                // 2. Main Booking Info Card
-                BookingInfoCard()
+                    // 2. Main Booking Info Card
+                    BookingInfoCard(booking)
 
-                // 3. Weather Widget
-                WeatherWidget()
+                    // 3. Weather Widget
+                    WeatherWidget()
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Booking info not found.", color = NavyDeep)
+                }
             }
         }
     }
@@ -110,7 +137,7 @@ fun BookingDetailsTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-fun VenueHeaderSection() {
+fun VenueHeaderSection(booking: Booking) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -118,7 +145,7 @@ fun VenueHeaderSection() {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Skyline Pickleball Center",
+                text = booking.venueName ?: "Unknown Venue",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold,
                 color = NavyDeep,
@@ -129,7 +156,7 @@ fun VenueHeaderSection() {
                 Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(16.dp), tint = NavyDeep.copy(0.6f))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "1234 Volley Ave, Sportstown",
+                    text = "Venue Address St.", // We don't have address in DTO yet
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     color = NavyDeep.copy(0.6f)
@@ -153,7 +180,25 @@ fun VenueHeaderSection() {
 }
 
 @Composable
-fun BookingInfoCard() {
+fun BookingInfoCard(booking: Booking) {
+    var monthStr = "MON"
+    var dayStr = "01"
+    var timeRangeStr = "00:00 - 00:00"
+    var durationStr = "Min"
+
+    try {
+        val st = LocalDateTime.parse(booking.startTime)
+        val et = LocalDateTime.parse(booking.endTime)
+        val dateFormatter = DateTimeFormatter.ofPattern("MMM")
+        val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+        monthStr = st.format(dateFormatter).uppercase()
+        dayStr = st.dayOfMonth.toString()
+        timeRangeStr = "${st.format(timeFormatter)} - ${et.format(timeFormatter)}"
+        val minDiff = java.time.Duration.between(st, et).toMinutes()
+        val dayOfWeek = st.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }
+        durationStr = "$dayOfWeek • $minDiff min session"
+    } catch (e: Exception) {}
+
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = CoolGray), // Màu xám nền thẻ
@@ -183,15 +228,15 @@ fun BookingInfoCard() {
                             .border(1.dp, Color.White.copy(0.5f), RoundedCornerShape(12.dp))
                             .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
-                        Text("NOV", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f))
-                        Text("14", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = NavyDeep)
+                        Text(monthStr, style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.4f))
+                        Text(dayStr, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = NavyDeep)
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
 
                     Column {
-                        Text("14:00 - 15:30", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = NavyDeep)
-                        Text("Thursday • 90 min session", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, color = NavyDeep.copy(0.6f))
+                        Text(timeRangeStr, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = NavyDeep)
+                        Text(durationStr, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, color = NavyDeep.copy(0.6f))
                     }
                 }
 
@@ -203,20 +248,23 @@ fun BookingInfoCard() {
                 Row(modifier = Modifier.fillMaxWidth()) {
                     // Col 1
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                        InfoItem(label = "COURT", value = "Court 4 (Hard)")
+                        InfoItem(label = "COURT", value = booking.courtName ?: "Court")
                         InfoItem(label = "PAYMENT STATUS") {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(modifier = Modifier.size(8.dp).background(PrimaryGreen, CircleShape))
+                                Box(modifier = Modifier.size(8.dp).background(
+                                    if (booking.status == "CONFIRMED") PrimaryGreen else Color.Gray, 
+                                    CircleShape
+                                ))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Paid", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
+                                Text(booking.status ?: "UNKNOWN", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = NavyDeep)
                             }
                         }
                     }
 
                     // Col 2
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                        InfoItem(label = "BOOKING ID", value = "#PB-83921")
-                        InfoItem(label = "TOTAL PRICE", value = "$45.00")
+                        InfoItem(label = "BOOKING ID", value = "#PB-${booking.id}")
+                        InfoItem(label = "TOTAL PRICE", value = "${booking.totalCost ?: 0}")
                     }
                 }
             }

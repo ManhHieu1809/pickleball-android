@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt.android)
 }
 
 android {
@@ -50,6 +52,7 @@ android {
     }
 }
 
+
 dependencies {
     // Core Android
     implementation(libs.androidx.core.ktx)
@@ -68,7 +71,6 @@ dependencies {
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)
-    implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
     // Lifecycle components
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -90,6 +92,17 @@ dependencies {
 
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.bundles.coilCompose)
+
+    // Networking - Retrofit + Moshi + OkHttp
+    implementation(libs.retrofit.core)
+    implementation(libs.retrofit.moshi)
+    implementation(libs.moshi.kotlin)
+    implementation(libs.okhttp.logging)
+
+    // Hilt DI
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
 
     // Testing
     testImplementation(libs.junit)

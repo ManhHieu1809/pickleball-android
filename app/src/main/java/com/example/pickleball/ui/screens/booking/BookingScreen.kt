@@ -36,25 +36,81 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import coil3.compose.AsyncImage
+import com.example.pickleball.data.model.Court
+import com.example.pickleball.data.model.TimeSlot
+import com.example.pickleball.data.model.UiState
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.BookingViewModel
 import java.nio.file.WatchEvent
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 @Composable
 fun BookingScreen(
+    courtId: String?,
     navController: NavController,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ){
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var selectedSlot by remember { mutableStateOf<TimeSlotData?>(null) }
+    var courtPriceBase by remember { mutableStateOf("20 VND") }
+
+    LaunchedEffect(courtId) {
+        courtId?.toLongOrNull()?.let { id ->
+            bookingViewModel.loadCourtById(id)
+            bookingViewModel.loadAvailableSlots(id, selectedDate.format(DateTimeFormatter.ISO_DATE))
+        }
+    }
+
+    val courtState by bookingViewModel.courtDetailState.collectAsState()
+    val slotsState by bookingViewModel.slotsState.collectAsState()
+
+    val court = (courtState as? UiState.Success<Court>)?.data
+    if (court != null) {
+        courtPriceBase = formatPriceVND(court.priceAmount)
+    }
+
     Scaffold(
         containerColor = Color.White,
         topBar = {
             BookingTopBar(onBackClick = onBackClick)
         },
         bottomBar = {
-            BookingBottomBar(totalPrice = "$20.00", navController = navController)
+            BookingBottomBar(
+                totalPrice = selectedSlot?.priceOrLabel ?: courtPriceBase, 
+                navController = navController,
+                isEnabled = selectedSlot != null,
+                onProceedClick = {
+                    val dateFormatted = selectedDate.format(DateTimeFormatter.ISO_DATE)
+                    val passingCourtId = courtId ?: "0"
+                    val passingSlotId = selectedSlot?.id?.toString() ?: "0"
+                    navController.navigate("payment_confirmation/$passingCourtId/$passingSlotId/$dateFormatted")
+                },
+                onCreateMatchClick = {
+                    val dateFormatted = selectedDate.format(DateTimeFormatter.ISO_DATE)
+                    val passingCourtId = courtId ?: "0"
+                    val passingSlotId = selectedSlot?.id?.toString() ?: "0"
+                    
+                    try {
+                        val createMatchEntry = navController.getBackStackEntry("create_match")
+                        createMatchEntry.savedStateHandle["returned_court_id"] = passingCourtId
+                        createMatchEntry.savedStateHandle["returned_slot_id"] = passingSlotId
+                        createMatchEntry.savedStateHandle["returned_date"] = dateFormatted
+                        navController.popBackStack("create_match", inclusive = false)
+                    } catch (e: Exception) {
+                        navController.navigate("create_match/$passingCourtId/$passingSlotId/$dateFormatted")
+                    }
+                }
+            )
         }
     ) { paddingValues ->
         Column(
@@ -78,57 +134,139 @@ fun BookingScreen(
                    )
            ) {
                Column {
-                   MonthHeaderSection()
-                   DateStripSection()
+                   MonthHeaderSection(monthYear = selectedDate.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + selectedDate.year)
+                   DateStripSection(selectedDate = selectedDate, onDateSelected = { newDate ->
+                       selectedDate = newDate
+                       selectedSlot = null
+                       courtId?.toLongOrNull()?.let { id ->
+                           bookingViewModel.loadAvailableSlots(id, newDate.format(DateTimeFormatter.ISO_DATE))
+                       }
+                   })
                }
            }
-            CourtInfoCard()
+            CourtInfoCard(court)
 
-            Column(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 24.dp)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                TimeSlotSection(
-                    title = "Morning",
-                    icon = Icons.Default.WbTwilight,
-                    slots = listOf(
-                        TimeSlotData("07:00 AM", "$15", SlotStatus.AVAILABLE),
-                        TimeSlotData("08:00 AM", "$15", SlotStatus.AVAILABLE),
-                        TimeSlotData("09:00 AM", "Booked", SlotStatus.BOOKED),
-                        TimeSlotData("10:00 AM", "$20", SlotStatus.SELECTED), // Selected item
-                        TimeSlotData("11:00 AM", "$20", SlotStatus.AVAILABLE)
-                    )
-                )
-                TimeSlotSection(
-                    title = "Afternoon",
-                    icon = Icons.Default.WbSunny,
-                    slots = listOf(
-                        TimeSlotData("12:00 PM", "$25", SlotStatus.AVAILABLE),
-                        TimeSlotData("01:00 PM", "$25", SlotStatus.AVAILABLE),
-                        TimeSlotData("02:00 PM", "$25", SlotStatus.AVAILABLE),
-                        TimeSlotData("03:00 PM", "League", SlotStatus.DISABLED),
-                        TimeSlotData("04:00 PM", "League", SlotStatus.DISABLED)
-                    )
-                )
+            when (slotsState) {
+                is UiState.Loading -> {
+                     Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                          CircularProgressIndicator(color = PrimaryGreen)
+                     }
+                }
+                is UiState.Success -> {
+                    val slots = (slotsState as UiState.Success).data
+                    if (slots.isEmpty()) {
+                         Text("No available slots for this date.", modifier = Modifier.padding(16.dp), color = TextSecondaryLight)
+                    } else {
+                        val currentTime = LocalTime.now()
+                        val isToday = selectedDate == LocalDate.now()
 
-                TimeSlotSection(
-                    title = "Evening",
-                    icon = Icons.Default.Bedtime,
-                    slots = listOf(
-                        TimeSlotData("06:00 PM", "$30", SlotStatus.AVAILABLE),
-                        TimeSlotData("07:00 PM", "$30", SlotStatus.AVAILABLE)
-                    )
-                )
+                        val mappedSlots = slots.mapIndexed { index, it ->
+                            val slotIdFallback = it.id ?: it.startTime?.hashCode()?.toLong() ?: index.toLong()
+                            
+                            var status = SlotStatus.AVAILABLE
+                            if (it.isBooked == true || it.isAvailable == false) {
+                                status = SlotStatus.BOOKED
+                            } else if (isToday) {
+                                try {
+                                    val slotTime = LocalTime.parse(it.startTime)
+                                    if (slotTime.isBefore(currentTime)) {
+                                        status = SlotStatus.DISABLED
+                                    }
+                                } catch (e: Exception) {}
+                            }
+                            
+                            if (status == SlotStatus.AVAILABLE && selectedSlot?.id == slotIdFallback) {
+                                status = SlotStatus.SELECTED
+                            }
+
+                            TimeSlotData(
+                                id = slotIdFallback,
+                                time = formatTimeRange(it.startTime, it.endTime),
+                                priceOrLabel = formatPriceVND(it.priceAmount ?: court?.priceAmount),
+                                status = status,
+                                originalData = it
+                            )
+                        }
+
+                        val morningSlots = mappedSlots.filter { parseToHour(it.originalData?.startTime) < 12 }
+                        val afternoonSlots = mappedSlots.filter { parseToHour(it.originalData?.startTime) in 12..17 }
+                        val eveningSlots = mappedSlots.filter { parseToHour(it.originalData?.startTime) >= 18 }
+
+                        val onSlotSelected: (TimeSlotData) -> Unit = { clickedSlot ->
+                            if (clickedSlot.status == SlotStatus.AVAILABLE || clickedSlot.status == SlotStatus.SELECTED) {
+                                selectedSlot = if (selectedSlot?.id == clickedSlot.id) null else clickedSlot
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp, vertical = 24.dp)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
+                            if (morningSlots.isNotEmpty()) {
+                                TimeSlotSection(
+                                    title = "Morning",
+                                    icon = Icons.Default.WbTwilight,
+                                    slots = morningSlots,
+                                    onSlotClick = onSlotSelected
+                                )
+                            }
+                            if (afternoonSlots.isNotEmpty()) {
+                                TimeSlotSection(
+                                    title = "Afternoon",
+                                    icon = Icons.Default.WbSunny,
+                                    slots = afternoonSlots,
+                                    onSlotClick = onSlotSelected
+                                )
+                            }
+                            if (eveningSlots.isNotEmpty()) {
+                                TimeSlotSection(
+                                    title = "Evening",
+                                    icon = Icons.Default.Bedtime,
+                                    slots = eveningSlots,
+                                    onSlotClick = onSlotSelected
+                                )
+                            }
+                        }
+                    }
+                }
+                is UiState.Error -> {
+                     Text("Failed to load slots: ${(slotsState as UiState.Error).message}", modifier = Modifier.padding(16.dp), color = Color.Red)
+                }
+                else -> {}
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
+fun formatTimeRange(start: String?, end: String?): String {
+    return try {
+        val s = start?.let { LocalTime.parse(it).format(DateTimeFormatter.ofPattern("HH:mm")) } ?: "N/A"
+        val e = end?.let { LocalTime.parse(it).format(DateTimeFormatter.ofPattern("HH:mm")) } ?: "N/A"
+        "$s - $e"
+    } catch (e: Exception) {
+        "${start ?: "N/A"} - ${end ?: "N/A"}"
+    }
+}
+
+fun formatPriceVND(price: Double?, defaultFallback: Double = 0.0): String {
+    val amount = price ?: defaultFallback
+    return String.format(Locale("vi", "VN"), "%,.0f VND", amount)
+}
+
+fun parseToHour(timeStr: String?): Int {
+    if (timeStr == null) return 0
+    return try {
+        LocalTime.parse(timeStr).hour
+    } catch (e: Exception) {
+        0
+    }
+}
+
 enum class SlotStatus{AVAILABLE, BOOKED, SELECTED, DISABLED}
-data class TimeSlotData(val time: String, val priceOrLabel: String, val status: SlotStatus)
+data class TimeSlotData(val id: Long, val time: String, val priceOrLabel: String, val status: SlotStatus, val originalData: TimeSlot?)
 
 @Composable
 fun BookingTopBar(onBackClick: () -> Unit) {
@@ -159,7 +297,7 @@ fun BookingTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-fun MonthHeaderSection() {
+fun MonthHeaderSection(monthYear: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -168,7 +306,7 @@ fun MonthHeaderSection() {
         verticalAlignment = Alignment.Bottom
     ) {
         Text(
-            text = "September 2023",
+            text = monthYear,
             style = MaterialTheme.typography.headlineSmall, // Lexend
             color = NavyDeep
         )
@@ -194,7 +332,8 @@ fun MonthHeaderSection() {
 }
 
 @Composable
-fun DateStripSection() {
+fun DateStripSection(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Unit) {
+    val days = (0..6).map { LocalDate.now().plusDays(it.toLong()) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -202,20 +341,19 @@ fun DateStripSection() {
             .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Selected Date (Wednesday 20)
-        DateItem(day = "Wed", date = "20", isSelected = true)
-
-        // Other Dates
-        DateItem(day = "Thu", date = "21", isSelected = false)
-        DateItem(day = "Fri", date = "22", isSelected = false)
-        DateItem(day = "Sat", date = "23", isSelected = false)
-        DateItem(day = "Sun", date = "24", isSelected = false)
-        DateItem(day = "Mon", date = "25", isSelected = false)
+        days.forEach { dateObj ->
+            DateItem(
+                day = dateObj.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
+                date = dateObj.dayOfMonth.toString(),
+                isSelected = dateObj == selectedDate,
+                onClick = { onDateSelected(dateObj) }
+            )
+        }
     }
 }
 
 @Composable
-fun DateItem(day: String, date: String, isSelected: Boolean) {
+fun DateItem(day: String, date: String, isSelected: Boolean, onClick: () -> Unit) {
     val bgColor = if(isSelected) PrimaryGreen else SurfaceCardColor
     val textColor = if(isSelected) NavyDeep else NavyDeep
     val dayColor = if(isSelected) NavyDeep.copy(0.9f) else NavyDeep.copy(0.7f)
@@ -228,7 +366,7 @@ fun DateItem(day: String, date: String, isSelected: Boolean) {
             .shadow(shadowElevation, RoundedCornerShape(8.dp), spotColor = PrimaryGreen.copy(0.5f))
             .clip(RoundedCornerShape(8.dp))
             .background(bgColor)
-            .clickable { }
+            .clickable { onClick() }
             .border(
                 width = if (isSelected) 1.dp else 1.dp,
                 color = if (isSelected) PrimaryGreen else Color.Transparent,
@@ -254,7 +392,7 @@ fun DateItem(day: String, date: String, isSelected: Boolean) {
 }
 
 @Composable
-fun CourtInfoCard() {
+fun CourtInfoCard(court: Court?) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -268,7 +406,8 @@ fun CourtInfoCard() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = "https://lh3.googleusercontent.com/aida-public/AB6AXuDMUxe4iR1t-QYx8zyG1BCbxlrkwqX884KnnGTyY6nuyK_Dx7V_S7nmhjWXYiq8eS_wn8npCPr3VYBO1IvSxe-Kevc-Inp7xKS6lxECmHPFjiCRQ3SVEd2tqo4lVE3TedNl63L6VeUdJfvSPKHvR_Qgpiut41xjBzZQS6UGKz0N_TbXu0OrE4bpfJvJbUpK10GXqn62t9Oz3pVPGSZm1uIp_VxupKmEDPnf1VSsbkSeKRHNBeh8rMlREgEdPRp_vSm5fPtRBdhEEyZr", // URL from HTML
+                model = court?.id?.let { "https://picsum.photos/200/200?${it}" } 
+                    ?: "https://lh3.googleusercontent.com/aida-public/AB6AXuDMUxe4iR1t-QYx8zyG1BCbxlrkwqX884KnnGTyY6nuyK_Dx7V_S7nmhjWXYiq8eS_wn8npCPr3VYBO1IvSxe-Kevc-Inp7xKS6lxECmHPFjiCRQ3SVEd2tqo4lVE3TedNl63L6VeUdJfvSPKHvR_Qgpiut41xjBzZQS6UGKz0N_TbXu0OrE4bpfJvJbUpK10GXqn62t9Oz3pVPGSZm1uIp_VxupKmEDPnf1VSsbkSeKRHNBeh8rMlREgEdPRp_vSm5fPtRBdhEEyZr",
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -281,14 +420,14 @@ fun CourtInfoCard() {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Riverside Courts",
+                    text = court?.venueName ?: "Riverside Courts",
                     style = MaterialTheme.typography.titleMedium,
                     color = NavyDeep,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Court 3 • Hard Surface",
+                    text = court?.courtName ?: "Court 3 • Hard Surface",
                     style = MaterialTheme.typography.bodySmall,
                     color = NavyDeep.copy(0.7f)
                 )
@@ -302,7 +441,7 @@ fun CourtInfoCard() {
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Available",
+                        text = if (court?.isActive != false) "Available" else "Maintenance",
                         style = MaterialTheme.typography.labelSmall,
                         color = NavyDeep,
                         fontWeight = FontWeight.Medium
@@ -312,7 +451,7 @@ fun CourtInfoCard() {
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "$20/hr",
+                    text = formatPriceVND(court?.priceAmount) + "/hr",
                     style = MaterialTheme.typography.labelLarge,
                     color = NavyDeep
                 )
@@ -330,7 +469,7 @@ fun CourtInfoCard() {
 }
 
 @Composable
-fun TimeSlotSection(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, slots: List<TimeSlotData>) {
+fun TimeSlotSection(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, slots: List<TimeSlotData>, onSlotClick: (TimeSlotData) -> Unit) {
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -360,7 +499,7 @@ fun TimeSlotSection(title: String, icon: androidx.compose.ui.graphics.vector.Ima
             ) {
                 rowSlots.forEach { slot ->
                     Box(modifier = Modifier.weight(1f)) {
-                        TimeSlotCard(slot)
+                        TimeSlotCard(slot, onSlotClick)
                     }
                 }
                 if (rowSlots.size < 3) {
@@ -377,7 +516,7 @@ fun TimeSlotSection(title: String, icon: androidx.compose.ui.graphics.vector.Ima
 }
 
 @Composable
-fun TimeSlotCard(data: TimeSlotData) {
+fun TimeSlotCard(data: TimeSlotData, onSlotClick: (TimeSlotData) -> Unit) {
     val isSelected = data.status == SlotStatus.SELECTED
     val isBookedOrDisabled = data.status == SlotStatus.BOOKED || data.status == SlotStatus.DISABLED
 
@@ -393,7 +532,7 @@ fun TimeSlotCard(data: TimeSlotData) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(enabled = !isBookedOrDisabled) { },
+                .clickable(enabled = !isBookedOrDisabled) { onSlotClick(data) },
             shape = RoundedCornerShape(8.dp),
             color = bgColor,
             border = BorderStroke(if(isSelected) 2.dp else 1.dp, borderColor),
@@ -445,7 +584,7 @@ fun TimeSlotCard(data: TimeSlotData) {
 }
 
 @Composable
-fun BookingBottomBar(totalPrice: String, navController: NavController) {
+fun BookingBottomBar(totalPrice: String, navController: NavController, isEnabled: Boolean, onProceedClick: () -> Unit, onCreateMatchClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color.White.copy(0.95f),
@@ -455,11 +594,11 @@ fun BookingBottomBar(totalPrice: String, navController: NavController) {
         Row(
             modifier = Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                .navigationBarsPadding(), // Safe area
+                .navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(modifier = Modifier.weight(0.4f)) {
                 Text(
                     text = "Total amount",
                     style = MaterialTheme.typography.labelSmall,
@@ -470,43 +609,53 @@ fun BookingBottomBar(totalPrice: String, navController: NavController) {
                     Text(
                         text = totalPrice,
                         style = MaterialTheme.typography.headlineSmall,
-                        fontSize = 24.sp,
+                        fontSize = 18.sp,
                         color = NavyDeep
                     )
                     Text(
-                        text = " / 1h",
+                        text = "/1h",
                         style = MaterialTheme.typography.bodySmall,
                         color = NavyDeep.copy(0.7f),
-                        modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+                        modifier = Modifier.padding(bottom = 2.dp, start = 2.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(24.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            Button(
-                onClick = { navController.navigate(Routes.PAYMENT_CONFIRMATION) },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = PrimaryGreen,
-                    contentColor = NavyDeep
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+            Column(
+                modifier = Modifier.weight(0.6f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Proceed to Payment",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
+                Button(
+                    onClick = onProceedClick,
+                    enabled = isEnabled,
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PrimaryGreen,
+                        contentColor = NavyDeep,
+                        disabledContainerColor = Color.LightGray
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                ) {
+                    Text("Book Private", style = MaterialTheme.typography.labelMedium, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(14.dp))
+                }
+                
+                OutlinedButton(
+                    onClick = onCreateMatchClick,
+                    enabled = isEnabled,
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = NavyDeep,
+                    ),
+                    border = BorderStroke(1.dp, if(isEnabled) PrimaryGreen else Color.LightGray)
+                ) {
+                    Text("Open Match", style = MaterialTheme.typography.labelMedium, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

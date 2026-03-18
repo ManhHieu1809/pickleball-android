@@ -25,12 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-
-val NeonGreen = Color(0xFF00E677)
-val DarkGlass = Color(0xFF151515).copy(alpha = 0.85f)
-val BorderWhite10 = Color.White.copy(alpha = 0.1f)
-val ActiveBackground = Color.White.copy(alpha = 0.05f)
-val InactiveGray = Color(0xFF6B7280)
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
 
 enum class HomeTab(val label: String, val iconOn: ImageVector, val iconOff: ImageVector) {
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home),
@@ -46,6 +42,19 @@ fun BottomNav(
     onTabSelected: (HomeTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isDark = isSystemInDarkTheme()
+    val glassColor = if (isDark) {
+        Color(0xFF151515).copy(alpha = 0.85f)
+    } else {
+        Color.White.copy(alpha = 0.85f)
+    }
+    val borderColor = if (isDark) {
+        Color.White.copy(alpha = 0.1f)
+    } else {
+        Color.Black.copy(alpha = 0.05f)
+    }
+    val shadowColor = if (isDark) Color.Black.copy(alpha = 0.8f) else Color.Gray.copy(alpha = 0.3f)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -59,13 +68,13 @@ fun BottomNav(
                 .shadow(
                     elevation = 20.dp,
                     shape = CircleShape,
-                    spotColor = Color.Black.copy(alpha = 0.8f)
+                    spotColor = shadowColor
                 )
                 .widthIn(max = 340.dp)
                 .fillMaxWidth(),
-            color = DarkGlass,
+            color = glassColor,
             shape = CircleShape,
-            border = androidx.compose.foundation.BorderStroke(1.dp, BorderWhite10)
+            border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
         ) {
             Row(
                 modifier = Modifier
@@ -92,13 +101,17 @@ fun NavCapsuleItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    val activeBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+
     val contentColor by animateColorAsState(
-        targetValue = if (isSelected) NeonGreen else InactiveGray,
+        targetValue = if (isSelected) primaryColor else inactiveColor,
         label = "colorAnim"
     )
 
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) ActiveBackground else Color.Transparent,
+        targetValue = if (isSelected) activeBg else Color.Transparent,
         label = "bgAnim"
     )
 
@@ -129,12 +142,12 @@ fun NavCapsuleItem(
                 Box(
                     modifier = Modifier
                         .size(4.dp)
-                        .background(NeonGreen, CircleShape)
+                        .background(primaryColor, CircleShape)
                         .shadow(
                             elevation = 4.dp,
                             shape = CircleShape,
-                            ambientColor = NeonGreen,
-                            spotColor = NeonGreen
+                            ambientColor = primaryColor,
+                            spotColor = primaryColor
                         )
 
                 )

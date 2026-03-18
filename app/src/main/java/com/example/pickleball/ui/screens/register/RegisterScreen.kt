@@ -30,21 +30,45 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.pickleball.data.model.UiState
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.AuthViewModel
 
 @Composable
-fun RegisterScreen(onBack: () -> Unit) {
+fun RegisterScreen(
+    onBack: () -> Unit,
+    onRegisterSuccess: () -> Unit = {},
+    authViewModel: AuthViewModel = hiltViewModel()
+) {
+    val registerState by authViewModel.registerState.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var acceptTerms by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     var showConfirmPassword by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val passwordError = password.isNotEmpty() && confirmPassword.isNotEmpty() && password != confirmPassword
     val emailError = email.isNotEmpty() && !isValidEmail(email)
+
+    LaunchedEffect(registerState) {
+        when (registerState) {
+            is UiState.Success -> {
+                authViewModel.resetRegisterState()
+                onRegisterSuccess()
+            }
+            is UiState.Error -> {
+                errorMessage = (registerState as UiState.Error).message
+            }
+            else -> {}
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -157,16 +181,33 @@ fun RegisterScreen(onBack: () -> Unit) {
 
             Spacer(Modifier.height(24.dp))
 
+            if (errorMessage != null) {
+                Text(
+                    text = errorMessage!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
             Button(
-                onClick = {},
-                enabled = fullName.isNotBlank() && email.isNotBlank() && password.isNotBlank() && !passwordError && acceptTerms && !emailError,
+                onClick = {
+                    errorMessage = null
+                    authViewModel.register(email.trim(), password, fullName.trim(), phone.trim())
+                },
+                enabled = fullName.isNotBlank() && email.isNotBlank() && password.isNotBlank() && !passwordError && acceptTerms && !emailError && registerState !is UiState.Loading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen, contentColor = NavyDeep),
             ) {
-                Text("REGISTER NOW", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.width(6.dp))
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
+                if (registerState is UiState.Loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = NavyDeep, strokeWidth = 2.dp)
+                } else {
+                    Text("REGISTER NOW", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
+                }
             }
             Spacer(Modifier.height(40.dp))
         }

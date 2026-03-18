@@ -33,8 +33,13 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.navigation.navigateToTab
+import com.example.pickleball.data.model.UiState
+import com.example.pickleball.viewmodel.BookingViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.pickleball.ui.screens.home.components.BottomNav
 import com.example.pickleball.ui.screens.home.components.HomeTab
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import com.example.pickleball.ui.theme.*
 
 val SoftMint = Color(0xFFD6FFF3)
@@ -42,9 +47,15 @@ val CoolGray = Color(0xFFE8EBF0)
 
 @Composable
 fun MyBookingsScreen(
-    navController: NavController
+    navController: NavController,
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ) {
     var selectedTab by remember { mutableStateOf(0) }
+    val myBookingsState by bookingViewModel.myBookingsState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        bookingViewModel.loadMyBookings()
+    }
 
     Scaffold(
         containerColor = Color.White,
@@ -81,48 +92,82 @@ fun MyBookingsScreen(
                     )
             )
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
-                    .padding(horizontal = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                contentPadding = PaddingValues(top = 24.dp, bottom = 100.dp) // Bottom padding cho BottomNav nổi
-            ) {
-                item {
-                    BookingCard(
-                        status = BookingStatus.CONFIRMED,
-                        venueName = "Skyline Pickleball Center",
-                        courtName = "Court 4 (Hard Surface)",
-                        date = "Nov 14, 2023",
-                        time = "14:00 - 15:30",
-                        badgeText = "Confirmed",
-                        onManageClick = {
-                            navController.navigate(com.example.pickleball.navigation.Routes.BOOKING_DETAILS)
+            val bookings = (myBookingsState as? UiState.Success)?.data ?: emptyList()
+            
+            val now = LocalDateTime.now()
+
+            // Sort logic: 0 -> Upcoming, 1 -> Past
+            val displayedBookings = bookings.filter { booking ->
+                var isPast = false
+                try {
+                    val endObj = LocalDateTime.parse(booking.endTime ?: booking.startTime)
+                    isPast = endObj.isBefore(now)
+                } catch (e: Exception) {
+                    // fallback if parsing fails, rely on status
+                    isPast = booking.status == "COMPLETED" || booking.status == "CANCELLED"
+                }
+                
+                // Also treat cancelled bookings as past or filter logic if needed.
+                // But the user specifically wants time-based:
+                if (selectedTab == 0) {
+                    !isPast && booking.status != "CANCELLED"
+                } else {
+                    isPast || booking.status == "CANCELLED"
+                }
+            }
+
+            if (myBookingsState is UiState.Loading) {
+                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                     CircularProgressIndicator(color = PrimaryGreen)
+                 }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = paddingValues.calculateTopPadding())
+                        .padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    contentPadding = PaddingValues(top = 24.dp, bottom = 100.dp) // Bottom padding cho BottomNav nổi
+                ) {
+                    if (displayedBookings.isEmpty()) {
+                        item {
+                            Text("No bookings found.", color = NavyDeep.copy(0.6f))
                         }
-                    )
-                }
+                    } else {
+                        items(displayedBookings.size) { index ->
+                            val booking = displayedBookings[index]
+                            
+                            // parse date & time
+                            var dateStr = booking.startTime ?: ""
+                            var timeStr = ""
+                            try {
+                                val startObj = LocalDateTime.parse(booking.startTime)
+                                val endObj = LocalDateTime.parse(booking.endTime)
+                                val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+                                val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+                                dateStr = startObj.format(dateFormatter)
+                                timeStr = "${startObj.format(timeFormatter)} - ${endObj.format(timeFormatter)}"
+                            } catch (e: Exception) {}
 
-                item {
-                    BookingCard(
-                        status = BookingStatus.AWAITING_PAYMENT,
-                        venueName = "Metro Sports Complex",
-                        courtName = "Court 12",
-                        date = "Nov 18, 2023",
-                        time = "09:00 - 10:00",
-                        badgeText = "Awaiting"
-                    )
-                }
+                            val status = when (booking.status) {
+                                "PENDING", "AWAITING_PAYMENT" -> BookingStatus.AWAITING_PAYMENT
+                                "COMPLETED", "CANCELLED" -> BookingStatus.UPCOMING // fallback
+                                else -> BookingStatus.CONFIRMED
+                            }
 
-                item {
-                    BookingCard(
-                        status = BookingStatus.UPCOMING,
-                        venueName = "The Pickle Jar",
-                        courtName = "Pro Court 1",
-                        date = "Dec 02",
-                        time = "18:00",
-                        badgeText = "Upcoming"
-                    )
+                            BookingCard(
+                                status = status,
+                                venueName = booking.venueName ?: "Pickleball Venue",
+                                courtName = booking.courtName ?: "Court",
+                                date = dateStr,
+                                time = timeStr,
+                                badgeText = booking.status ?: "UNKNOWN",
+                                onManageClick = {
+                                    navController.navigate("booking_details/${booking.id}")
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }

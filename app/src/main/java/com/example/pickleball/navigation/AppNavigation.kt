@@ -1,6 +1,5 @@
 package com.example.pickleball.navigation
 
-import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,12 +9,14 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.pickleball.ui.screens.booking.BookingScreen
 import com.example.pickleball.ui.screens.booking.MyBookingsScreen
 import com.example.pickleball.ui.screens.court.FindCourtScreen
-import com.example.pickleball.ui.screens.court.CourtDetailScreen
+import com.example.pickleball.ui.screens.court.VenueDetailScreen
 import com.example.pickleball.ui.screens.home.HomeScreen
 import com.example.pickleball.ui.screens.match.InviteDuoScreen
 import com.example.pickleball.ui.screens.login.LoginScreen
@@ -41,15 +42,12 @@ import com.example.pickleball.ui.screens.profile.ProfileScreen
 import com.example.pickleball.ui.screens.profile.wallet.WithdrawFundsScreen
 import com.example.pickleball.ui.screens.profile.wallet.WithdrawalSuccessScreen
 import com.example.pickleball.ui.screens.register.RegisterScreen
-import com.google.accompanist.navigation.animation.AnimatedNavHost
-import com.google.accompanist.navigation.animation.rememberAnimatedNavController
 
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AppNavigation() {
-    val navController = rememberAnimatedNavController()
+    val navController = rememberNavController()
 
-    AnimatedNavHost(
+    NavHost(
         navController = navController,
         startDestination = Routes.ONBOARDING
     ) {
@@ -111,6 +109,11 @@ fun AppNavigation() {
             RegisterScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                onRegisterSuccess = {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.ONBOARDING) { inclusive = true }
+                    }
                 }
             )
         }
@@ -134,8 +137,8 @@ fun AppNavigation() {
         ) {
             FindCourtScreen(
                 navController = navController,
-                onCourtClick = { courtId ->
-                    navController.navigate("court_detail/$courtId")
+                onVenueClick = { venueId ->
+                    navController.navigate("venue_detail/$venueId")
                 }
             )
         }
@@ -151,27 +154,30 @@ fun AppNavigation() {
         }
 
         composable(
-            route = Routes.COURT_DETAIL,
-            arguments = listOf(navArgument("courtId") { type = NavType.StringType }),
+            route = Routes.VENUE_DETAIL,
+            arguments = listOf(navArgument("venueId") { type = NavType.StringType }),
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
         ) { backStackEntry ->
-            val courtId = backStackEntry.arguments?.getString("courtId")
-            CourtDetailScreen(
-                courtId = courtId,
+            val venueId = backStackEntry.arguments?.getString("venueId")
+            VenueDetailScreen(
+                venueId = venueId,
                 onBackClick = { navController.popBackStack() },
-                onCalendarClick = {
-                    navController.navigate(Routes.BOOKING)
+                onCourtClick = { courtId ->
+                    navController.navigate("booking/$courtId")
                 }
             )
         }
 
         composable(
-            route = Routes.BOOKING,
+            route = "booking/{courtId}",
+            arguments = listOf(navArgument("courtId") { type = NavType.StringType }),
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
-        ) {
+        ) { backStackEntry ->
+            val courtId = backStackEntry.arguments?.getString("courtId")
             BookingScreen(
+                courtId = courtId,
                 navController = navController,
                 onBackClick = { navController.popBackStack() }
             )
@@ -179,10 +185,22 @@ fun AppNavigation() {
 
         composable(
             route = Routes.PAYMENT_CONFIRMATION,
+            arguments = listOf(
+                navArgument("courtId") { type = NavType.StringType },
+                navArgument("slotId") { type = NavType.StringType },
+                navArgument("date") { type = NavType.StringType }
+            ),
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
-        ) {
+        ) { backStackEntry ->
+            val courtId = backStackEntry.arguments?.getString("courtId")
+            val slotId = backStackEntry.arguments?.getString("slotId")
+            val date = backStackEntry.arguments?.getString("date")
+
             com.example.pickleball.ui.screens.payment.PaymentConfirmationScreen(
+                courtId = courtId,
+                slotId = slotId,
+                date = date,
                 navController = navController,
                 onBackClick = { navController.popBackStack() },
                 onConfirmClick = {
@@ -202,11 +220,14 @@ fun AppNavigation() {
         }
 
         composable(
-            route = Routes.BOOKING_DETAILS,
+            route = "booking_details/{bookingId}",
+            arguments = listOf(navArgument("bookingId") { type = NavType.StringType }),
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
-        ) {
+        ) { backStackEntry ->
+            val bookingId = backStackEntry.arguments?.getString("bookingId")
             com.example.pickleball.ui.screens.booking.BookingDetailsScreen(
+                bookingId = bookingId,
                 navController = navController,
                 onBackClick = { navController.popBackStack() }
             )
@@ -234,10 +255,10 @@ fun AppNavigation() {
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
         ) { backStackEntry ->
-            // Lấy ID nếu cần xử lý logic sau này
             val matchId = backStackEntry.arguments?.getString("matchId")
 
             MatchDetailsScreen(
+                matchId = matchId,
                 onBackClick = { navController.popBackStack() },
                 onDepositClick = { navController.navigate("confirm_join/$matchId") }
             )
@@ -415,6 +436,32 @@ fun AppNavigation() {
 
         composable(Routes.CREATE_MATCH) {
             CreateMatchScreen(
+                courtId = null,
+                slotId = null,
+                date = null,
+                navController = navController,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.CREATE_MATCH_WITH_SLOT,
+            arguments = listOf(
+                navArgument("courtId") { type = NavType.StringType },
+                navArgument("slotId") { type = NavType.StringType },
+                navArgument("date") { type = NavType.StringType }
+            ),
+            enterTransition = { slideInHorizontally { it } + fadeIn() },
+            popExitTransition = { slideOutHorizontally { it } + fadeOut() }
+        ) { backStackEntry ->
+            val courtId = backStackEntry.arguments?.getString("courtId")
+            val slotId = backStackEntry.arguments?.getString("slotId")
+            val date = backStackEntry.arguments?.getString("date")
+
+            CreateMatchScreen(
+                courtId = courtId,
+                slotId = slotId,
+                date = date,
                 navController = navController,
                 onBackClick = { navController.popBackStack() }
             )
@@ -434,8 +481,7 @@ fun AppNavigation() {
             MatchCreatedScreen(
                 navController = navController,
                 onViewMyMatches = {
-                    // Điều hướng đến tab My Booking (hoặc màn hình danh sách trận)
-                    // navController.navigate(Routes.MY_BOOKINGS)
+
                 },
                 onShare = { /* Mở share sheet */ },
                 onBackToHome = {

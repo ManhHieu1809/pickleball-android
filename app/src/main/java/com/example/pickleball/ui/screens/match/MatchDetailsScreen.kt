@@ -19,7 +19,7 @@ import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material.icons.outlined.SportsBaseball
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,11 +34,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
+import com.example.pickleball.data.model.CasualMatchDTO
+import com.example.pickleball.data.model.PlayerMatchDTO
+import com.example.pickleball.data.model.UiState
+import com.example.pickleball.viewmodel.BookingViewModel
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 object MatchTheme {
     val Primary = Color(0xFF00F684)
@@ -50,28 +57,73 @@ object MatchTheme {
 
 @Composable
 fun MatchDetailsScreen(
+    matchId: String? = null,
     onBackClick: () -> Unit = {},
-    onDepositClick: () -> Unit = {}
+    onDepositClick: () -> Unit = {},
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ) {
+    val matchesState by bookingViewModel.casualMatchesState.collectAsState()
+    val matchCandidatesState by bookingViewModel.matchCandidatesState.collectAsState()
+
+    LaunchedEffect(matchId) {
+        matchId?.toLongOrNull()?.let { id ->
+            bookingViewModel.loadMatchCandidates(id)
+            if (matchesState !is UiState.Success) {
+                bookingViewModel.loadAvailableCasualMatches()
+            }
+        }
+    }
+
+    val matches = (matchesState as? UiState.Success<List<CasualMatchDTO>>)?.data ?: emptyList()
+    val matchDetails = matches.find { it.booking.id.toString() == matchId }
+    val candidates = (matchCandidatesState as? UiState.Success<List<PlayerMatchDTO>>)?.data ?: emptyList()
+
+    val bookingState by bookingViewModel.bookingState.collectAsState()
+
+    LaunchedEffect(bookingState) {
+        if (bookingState is UiState.Success) {
+            bookingViewModel.resetBookingState()
+            onBackClick()
+        }
+    }
+
     Scaffold(
         containerColor = MatchTheme.White,
         topBar = { MatchDetailsTopBar(onBackClick) },
-        bottomBar = { MatchDetailsBottomBar(onDepositClick = onDepositClick) }
+        bottomBar = {
+            if (matchDetails != null) {
+                MatchDetailsBottomBar(
+                    matchDetails = matchDetails,
+                    isLoading = bookingState is UiState.Loading,
+                    onDepositClick = {
+                        matchId?.toLongOrNull()?.let {
+                            bookingViewModel.joinCasualMatch(it)
+                        }
+                    }
+                )
+            }
+        }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 24.dp), // Extra padding for scroll
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            item { Spacer(modifier = Modifier.height(8.dp)) }
-            item { HeaderInfoCard() }
-            item { MapSection() }
-            item { PlayersSection() }
-            item { MatchInfoGrid() }
-            item { MatchNotes() }
+        if (matchDetails == null) {
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MatchTheme.Primary)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+                item { HeaderInfoCard(matchDetails) }
+                item { MapSection() }
+                item { PlayersSection(matchDetails, candidates) }
+                item { MatchInfoGrid(matchDetails) }
+                item { MatchNotes(matchDetails) }
+            }
         }
     }
 }
@@ -89,64 +141,48 @@ fun MatchDetailsTopBar(onBackClick: () -> Unit) {
     ) {
         IconButton(
             onClick = onBackClick,
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
+            modifier = Modifier.size(40.dp).clip(CircleShape)
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = MatchTheme.Navy
-            )
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MatchTheme.Navy)
         }
-
-        Text(
-            text = "Match Details",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MatchTheme.Navy
-        )
-
+        Text("Match Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MatchTheme.Navy)
         IconButton(
-            onClick = { /* Share Action */ },
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
+            onClick = { },
+            modifier = Modifier.size(40.dp).clip(CircleShape)
         ) {
-            Icon(
-                imageVector = Icons.Default.Share,
-                contentDescription = "Share",
-                tint = MatchTheme.Navy
-            )
+            Icon(Icons.Default.Share, contentDescription = "Share", tint = MatchTheme.Navy)
         }
     }
 }
 
 @Composable
-fun HeaderInfoCard() {
+fun HeaderInfoCard(match: CasualMatchDTO) {
+    var dayStr = "TBD"
+    var dateStr = "TBD"
+    var timeStr = "TBD"
+    try {
+        if (match.booking.startTime != null) {
+            val ldt = LocalDateTime.parse(match.booking.startTime)
+            dayStr = ldt.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH).uppercase()
+            dateStr = ldt.format(DateTimeFormatter.ofPattern("MMM dd"))
+            timeStr = ldt.format(DateTimeFormatter.ofPattern("hh:mm a"))
+        }
+    } catch (e: Exception) { /* ignore */ }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = 20.dp,
-                shape = RoundedCornerShape(12.dp),
-                ambientColor = MatchTheme.Navy.copy(alpha = 0.05f),
-                spotColor = MatchTheme.Navy.copy(alpha = 0.05f)
-            )
+            .shadow(20.dp, RoundedCornerShape(12.dp), ambientColor = MatchTheme.Navy.copy(alpha = 0.05f), spotColor = MatchTheme.Navy.copy(alpha = 0.05f))
             .clip(RoundedCornerShape(12.dp))
             .background(MatchTheme.CoolGray)
             .border(1.dp, MatchTheme.White.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
     ) {
-        // Mesh Gradient Simulation
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(
-                            MatchTheme.SoftMint.copy(alpha = 0.8f),
-                            Color.Transparent
-                        ),
+                        colors = listOf(MatchTheme.SoftMint.copy(alpha = 0.8f), Color.Transparent),
                         center = androidx.compose.ui.geometry.Offset(x = 800f, y = 100f),
                         radius = 500f
                     )
@@ -154,12 +190,9 @@ fun HeaderInfoCard() {
         )
 
         Column(
-            modifier = Modifier
-                .padding(24.dp)
-                .fillMaxWidth(),
+            modifier = Modifier.padding(24.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Badge
             Surface(
                 color = MatchTheme.Primary,
                 shape = RoundedCornerShape(50),
@@ -167,7 +200,7 @@ fun HeaderInfoCard() {
                 shadowElevation = 2.dp
             ) {
                 Text(
-                    text = "RANKED MATCH",
+                    text = "CASUAL MATCH",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.ExtraBold,
                     color = MatchTheme.Navy,
@@ -177,7 +210,7 @@ fun HeaderInfoCard() {
             }
 
             Text(
-                text = "10:00 AM",
+                text = timeStr,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.ExtraBold,
                 color = MatchTheme.Navy,
@@ -187,38 +220,31 @@ fun HeaderInfoCard() {
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Sat, Oct 24 • 90 min",
+                text = "${dayStr.lowercase().replaceFirstChar { it.uppercase() }}, $dateStr",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MatchTheme.Navy.copy(alpha = 0.7f),
                 modifier = Modifier.padding(bottom = 20.dp)
             )
 
-            // Location Badge
             Surface(
                 color = MatchTheme.White.copy(alpha = 0.7f),
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, MatchTheme.White.copy(alpha = 0.6f))
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = null,
-                        tint = MatchTheme.Navy,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Icon(Icons.Default.LocationOn, null, tint = MatchTheme.Navy, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Venice Beach Courts, Court 4",
+                        text = "${match.booking.venueName ?: "Unknown"}, ${match.booking.courtName ?: "Unknown"}",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MatchTheme.Navy
+                        color = MatchTheme.Navy,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
@@ -236,233 +262,132 @@ fun MapSection() {
             .border(1.dp, MatchTheme.CoolGray, RoundedCornerShape(12.dp))
     ) {
         AsyncImage(
-            model = "https://lh3.googleusercontent.com/aida-public/AB6AXuBVkNBItZ6jMn7M4TwQNx7aIul19k1-Jy4TkyUkS5ilCR7a9JWZILOQiQGXRemJrkWkJz0l5b2kwK0khj8RjnDmyAmYryuIRf1AtuUpDttUhKgG16zi8X5zJt-jnxJcGaOP2Rp1ABKh-S7jsMvY4G0WKV0axHMmVNdeIiFXaYG02m4A1YEEJkkzCo3S47dcj7yHee71v7JjnWOhYBrjETcSoOPbsu8EKDsoh-j5Vo883FD3ty2vVwqQOBRfaGxAutqxekv9qo4Wn7JU", // Map Image URL
+            model = "https://lh3.googleusercontent.com/aida-public/AB6AXuBVkNBItZ6jMn7M4TwQNx7aIul19k1-Jy4TkyUkS5ilCR7a9JWZILOQiQGXRemJrkWkJz0l5b2kwK0khj8RjnDmyAmYryuIRf1AtuUpDttUhKgG16zi8X5zJt-jnxJcGaOP2Rp1ABKh-S7jsMvY4G0WKV0axHMmVNdeIiFXaYG02m4A1YEEJkkzCo3S47dcj7yHee71v7JjnWOhYBrjETcSoOPbsu8EKDsoh-j5Vo883FD3ty2vVwqQOBRfaGxAutqxekv9qo4Wn7JU",
             contentDescription = "Map View",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().background(Color.LightGray)
         )
 
-        // Map Overlay
         Surface(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(8.dp)
-                .clickable { },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).clickable { },
             shape = RoundedCornerShape(8.dp),
             color = MatchTheme.White,
             border = BorderStroke(1.dp, MatchTheme.CoolGray),
             shadowElevation = 2.dp
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "View Map",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MatchTheme.Navy
-                )
+            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("View Map", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MatchTheme.Navy)
                 Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                    contentDescription = null,
-                    tint = MatchTheme.Navy,
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = MatchTheme.Navy, modifier = Modifier.size(14.dp))
             }
         }
     }
 }
 
 @Composable
-fun PlayersSection() {
+fun PlayersSection(match: CasualMatchDTO, candidates: List<PlayerMatchDTO>) {
+    val req = match.requiredPlayerCount ?: 4
+    val cur = match.currentPlayerCount ?: candidates.size
+
+    var parsedElo = "N/A"
+    match.booking.notes?.split("|")?.forEach { part ->
+        val trimmed = part.trim()
+        if (trimmed.startsWith("Elo:")) {
+            parsedElo = trimmed.removePrefix("Elo:").trim().toFloatOrNull()?.toInt()?.toString() ?: "N/A"
+        }
+    }
+
     Column {
-        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Players (2/4)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MatchTheme.Navy
-            )
-
-            Surface(
-                color = MatchTheme.CoolGray,
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, MatchTheme.White)
-            ) {
-                Text(
-                    text = "Avg ELO: 1485",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MatchTheme.Navy.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
+            Text("Players ($cur/$req)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MatchTheme.Navy)
+            Surface(color = MatchTheme.CoolGray, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, MatchTheme.White)) {
+                Text("Avg ELO: $parsedElo", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MatchTheme.Navy.copy(alpha = 0.8f), modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Team A (Filled)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MatchTheme.CoolGray),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MatchTheme.White.copy(alpha = 0.5f))
-        ) {
+        val teamSize = req / 2
+
+        // Team 1
+        Card(colors = CardDefaults.cardColors(containerColor = MatchTheme.CoolGray), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MatchTheme.White.copy(alpha = 0.5f))) {
             Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-                // Vertical Bar
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(6.dp)
-                        .background(MatchTheme.Primary)
-                )
-
+                Box(modifier = Modifier.fillMaxHeight().width(6.dp).background(MatchTheme.Primary))
                 Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                    Text(
-                        text = "TEAM A (FULL)",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MatchTheme.Navy.copy(alpha = 0.6f),
-                        letterSpacing = 1.sp
-                    )
+                    Text("TEAM 1", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MatchTheme.Navy.copy(alpha = 0.6f), letterSpacing = 1.sp)
                     Spacer(modifier = Modifier.height(12.dp))
-
-                    PlayerRow(
-                        name = "Sarah M.",
-                        role = "Pro Member",
-                        elo = "1520",
-                        imageUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuBke_uLYzHaUNQ762VrMNHGy9gdbt8oI_x0-H8HyoQn-iLjYMiR2SEAlfBpX5TfjMsINvg4A1BqPqzXJeDP9NAT6qDdpUHG08U_P7otbkUO3TxdLF7qomRGewVcotO9RyBPL4ZCfxrvF-SkpCC8JwOAQs6yI-uW6yHQ79wDSxab5EYOuybLjWu2DmLvtDs0qP8GQDtVBWV2qSairEotTfnkVdVSosWujR4hzlXSGRv5yh2SooVl2bzb6aWdwyo76stRMdQRF8Ipsq93"
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    PlayerRow(
-                        name = "David K.",
-                        role = "Rookie",
-                        elo = "1450",
-                        imageUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuDTnhmg6vbxTGC8ap4pcQQQqAaUORtw_otTnYkNWd8-bTqX9pUJfxkHz85JD-arwA242CCVUimjwlMjdRikCDlPo_uMPJCuSqPmIjyp8v7m-RXm4BCyXi3In5Su2gK5kBY9CPfbktJrbN34wXxGIo5jtZriadem0j5eaMX896gnTYuossiN1hmDcP_7V3T1DVdTcnzZa-0rc_MTXICCOZuo785bFBb3MOdbEsdw6QLdqQbDjTw5PmhLGrOV9cg1vexhwUFvhwYmZmzS"
-                    )
+                    val teamA = candidates.take(teamSize)
+                    teamA.forEach { player ->
+                        PlayerRow(name = player.fullName ?: "Player", role = player.loyaltyTier ?: "Member", elo = player.currentElo?.toString() ?: "-", imageUrl = "https://i.pravatar.cc/150?u=${player.userId}")
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    repeat(teamSize - teamA.size) {
+                        OpenSlot()
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Team B (Dashed)
+        // Team 2
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .dashedBorder(2.dp, MatchTheme.CoolGray, 12.dp)
-                .background(MatchTheme.White, RoundedCornerShape(12.dp))
-                .padding(16.dp)
+            modifier = Modifier.fillMaxWidth().dashedBorder(2.dp, MatchTheme.CoolGray, 12.dp).background(MatchTheme.White, RoundedCornerShape(12.dp)).padding(16.dp)
         ) {
             Column {
-                Text(
-                    text = "TEAM B (OPEN)",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MatchTheme.Navy.copy(alpha = 0.6f),
-                    letterSpacing = 1.sp
-                )
+                Text("TEAM 2", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MatchTheme.Navy.copy(alpha = 0.6f), letterSpacing = 1.sp)
                 Spacer(modifier = Modifier.height(12.dp))
-
-                // Player B1
-                Surface(
-                    color = MatchTheme.CoolGray,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(
-                                model = "https://lh3.googleusercontent.com/aida-public/AB6AXuDJBJHq8EHCEnzF7btw4uBcFc8ZHW41ziHaJqB9HFzYdccy0gSw12Gjw-TkXEc2OzGYYXkh0z42bAYMXHWB2h8tTBm8J34wXwapyu0HvCWGbz9qeyOMCL9Fxl2OoVgEswRnV3UAof3sdqRLAmfwG7yXGd6Mus7BQG9syKdD3mws00V9eer9UAeNqhVVyR3VfwnSU-Zk8pM5NV1pGbfmi_GqfgiMfecfwHgZIN6IY9eQvusTyD0Lna-4AgxY2asW2U516KSMBsxlSkCy",
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .border(2.dp, MatchTheme.White, CircleShape)
-                                    .background(Color.Gray),
-                                contentScale = ContentScale.Crop
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("Jessica L.", fontWeight = FontWeight.Bold, color = MatchTheme.Navy, fontSize = 14.sp)
-                        }
-                        EloBadge("1410")
-                    }
+                val teamB = candidates.drop(teamSize)
+                teamB.forEach { player ->
+                    PlayerRow(name = player.fullName ?: "Player", role = player.loyaltyTier ?: "Member", elo = player.currentElo?.toString() ?: "-", imageUrl = "https://i.pravatar.cc/150?u=${player.userId}")
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Open Slot
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .dashedBorder(2.dp, MatchTheme.SoftMint, 8.dp)
-                        .background(MatchTheme.SoftMint.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                        .clickable { }
-                        .padding(10.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(MatchTheme.White, CircleShape)
-                                    .border(2.dp, MatchTheme.Primary, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Add, null, tint = MatchTheme.Primary)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text("Open Slot", fontWeight = FontWeight.Bold, color = MatchTheme.Navy, fontSize = 14.sp)
-                                Text("Join this team", fontWeight = FontWeight.Medium, color = MatchTheme.Navy.copy(0.7f), fontSize = 10.sp)
-                            }
-                        }
-                        Icon(Icons.Default.ChevronRight, null, tint = MatchTheme.Primary)
-                    }
+                repeat(teamSize - teamB.size) {
+                    OpenSlot()
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun OpenSlot() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .dashedBorder(2.dp, MatchTheme.SoftMint, 8.dp)
+            .background(MatchTheme.SoftMint.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+            .clickable { }
+            .padding(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(40.dp).background(MatchTheme.White, CircleShape).border(2.dp, MatchTheme.Primary, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, null, tint = MatchTheme.Primary)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Open Slot", fontWeight = FontWeight.Bold, color = MatchTheme.Navy, fontSize = 14.sp)
+                    Text("Join this team", fontWeight = FontWeight.Medium, color = MatchTheme.Navy.copy(0.7f), fontSize = 10.sp)
+                }
+            }
+            Icon(Icons.Default.ChevronRight, null, tint = MatchTheme.Primary)
         }
     }
 }
 
 @Composable
 fun PlayerRow(name: String, role: String, elo: String, imageUrl: String) {
-    Surface(
-        color = MatchTheme.White,
-        shape = RoundedCornerShape(8.dp),
-        shadowElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+    Surface(color = MatchTheme.White, shape = RoundedCornerShape(8.dp), shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, MatchTheme.CoolGray, CircleShape)
-                        .background(Color.Gray),
-                    contentScale = ContentScale.Crop
-                )
+                AsyncImage(model = imageUrl, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape).border(1.dp, MatchTheme.CoolGray, CircleShape).background(Color.Gray), contentScale = ContentScale.Crop)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(name, fontWeight = FontWeight.Bold, color = MatchTheme.Navy, fontSize = 14.sp)
@@ -476,15 +401,8 @@ fun PlayerRow(name: String, role: String, elo: String, imageUrl: String) {
 
 @Composable
 fun EloBadge(elo: String) {
-    Surface(
-        color = MatchTheme.SoftMint,
-        shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, MatchTheme.Primary.copy(alpha = 0.1f))
-    ) {
-        Column(
-            horizontalAlignment = Alignment.End,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp).widthIn(min = 60.dp)
-        ) {
+    Surface(color = MatchTheme.SoftMint, shape = RoundedCornerShape(6.dp), border = BorderStroke(1.dp, MatchTheme.Primary.copy(alpha = 0.1f))) {
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp).widthIn(min = 60.dp)) {
             Text(elo, fontWeight = FontWeight.ExtraBold, color = MatchTheme.Navy, fontSize = 12.sp)
             Text("ELO", fontWeight = FontWeight.Bold, color = MatchTheme.Navy.copy(0.5f), fontSize = 9.sp)
         }
@@ -492,52 +410,33 @@ fun EloBadge(elo: String) {
 }
 
 @Composable
-fun MatchInfoGrid() {
+fun MatchInfoGrid(match: CasualMatchDTO) {
+    var parsedFormat = "Doubles"
+    var parsedReferee = "No"
+    match.booking.notes?.split("|")?.forEach { part ->
+        val trimmed = part.trim()
+        if (trimmed.startsWith("Format:")) parsedFormat = trimmed.removePrefix("Format:").trim()
+        if (trimmed.startsWith("Referee:")) {
+            if (trimmed.removePrefix("Referee:").trim().toBoolean()) parsedReferee = "Yes"
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            InfoCard(
-                icon = Icons.Outlined.Payments,
-                label = "Entry Fee",
-                value = "$15.00",
-                modifier = Modifier.weight(1f)
-            )
-            InfoCard(
-                icon = Icons.Outlined.SportsBaseball,
-                label = "Ball Type",
-                value = "Dura Fast 40",
-                modifier = Modifier.weight(1f)
-            )
+            InfoCard(icon = Icons.Outlined.Payments, label = "Deposit", value = "$${match.depositPerPlayer?.toString() ?: "0.00"}", modifier = Modifier.weight(1f))
+            InfoCard(icon = Icons.Outlined.SportsBaseball, label = "Type", value = "Public", modifier = Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            InfoCard(
-                icon = Icons.Outlined.Rule,
-                label = "Format",
-                value = "Best of 3",
-                modifier = Modifier.weight(1f)
-            )
-            InfoCard(
-                icon = Icons.Outlined.LocalPolice,
-                label = "Referee",
-                value = "Self-Ref",
-                modifier = Modifier.weight(1f)
-            )
+            InfoCard(icon = Icons.Outlined.Rule, label = "Format", value = parsedFormat, modifier = Modifier.weight(1f))
+            InfoCard(icon = Icons.Outlined.LocalPolice, label = "Referee", value = parsedReferee, modifier = Modifier.weight(1f))
         }
     }
 }
 
 @Composable
 fun InfoCard(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(
-        color = MatchTheme.CoolGray,
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, MatchTheme.White.copy(alpha = 0.5f)),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
+    Surface(color = MatchTheme.CoolGray, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MatchTheme.White.copy(alpha = 0.5f)), modifier = modifier) {
+        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(icon, null, tint = MatchTheme.Navy.copy(0.5f), modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.height(4.dp))
             Text(label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, color = MatchTheme.Navy.copy(0.6f), letterSpacing = 0.5.sp)
@@ -547,24 +446,18 @@ fun InfoCard(icon: ImageVector, label: String, value: String, modifier: Modifier
 }
 
 @Composable
-fun MatchNotes() {
+fun MatchNotes(match: CasualMatchDTO) {
+    var rawNotes = ""
+    match.booking.notes?.split("|")?.forEach { part ->
+        val trimmed = part.trim()
+        if (trimmed.startsWith("Notes:")) rawNotes = trimmed.removePrefix("Notes:").trim()
+    }
+
     Column {
-        Text(
-            "MATCH NOTES",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MatchTheme.Navy,
-            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-        )
-        Surface(
-            color = MatchTheme.White,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MatchTheme.CoolGray),
-            shadowElevation = 2.dp, // shadow-soft
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Text("MATCH NOTES", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MatchTheme.Navy, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+        Surface(color = MatchTheme.White, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MatchTheme.CoolGray), shadowElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "Standard competitive rules apply. Please arrive 10 minutes early for warm-up. Winner stays on court for next casual rotation if time permits.",
+                text = rawNotes.ifEmpty { "No specific notes provided by the host." },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MatchTheme.Navy.copy(alpha = 0.8f),
                 lineHeight = 22.sp,
@@ -576,50 +469,48 @@ fun MatchNotes() {
 
 @Composable
 fun MatchDetailsBottomBar(
+    matchDetails: CasualMatchDTO,
+    isLoading: Boolean = false,
     onDepositClick: () -> Unit = {}
 ) {
-    Surface(
-        color = MatchTheme.White.copy(alpha = 0.95f),
-        shadowElevation = 16.dp,
-        border = BorderStroke(1.dp, MatchTheme.CoolGray)
-    ) {
+    Surface(color = MatchTheme.White.copy(alpha = 0.95f), shadowElevation = 16.dp, border = BorderStroke(1.dp, MatchTheme.CoolGray)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .padding(bottom = 16.dp) // SafeArea
-                .height(56.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp).padding(bottom = 16.dp).height(56.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Deposit Button
+            val isFull = (matchDetails.currentPlayerCount ?: 0) >= (matchDetails.requiredPlayerCount ?: 4)
+            val btnText = if (isFull) "Match Full" else if (isLoading) "Joining..." else "Deposit to Join"
+
             Button(
                 onClick = onDepositClick,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
+                enabled = !isFull && !isLoading,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MatchTheme.Primary,
-                    contentColor = MatchTheme.Navy
+                    containerColor = if (isFull) MatchTheme.CoolGray else MatchTheme.Primary,
+                    contentColor = if (isFull) MatchTheme.Navy.copy(0.4f) else MatchTheme.Navy,
+                    disabledContainerColor = MatchTheme.CoolGray,
+                    disabledContentColor = MatchTheme.Navy.copy(0.4f)
                 ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp) // shadow-glow effect simulation
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = if (isFull) 0.dp else 6.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Deposit to Join", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-                    Text("$15.00 • Secure Pay", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MatchTheme.Navy.copy(0.7f))
+                if (isLoading) {
+                    CircularProgressIndicator(color = MatchTheme.Navy, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(btnText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                        if (!isFull) {
+                            Text("$${matchDetails.depositPerPlayer?.toString() ?: "0.00"} • Secure Pay", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MatchTheme.Navy.copy(0.7f))
+                        }
+                    }
                 }
             }
 
-            // Chat Button
             Button(
                 onClick = {},
-                modifier = Modifier
-                    .size(56.dp),
+                modifier = Modifier.size(56.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MatchTheme.CoolGray,
-                    contentColor = MatchTheme.Navy
-                ),
+                colors = ButtonDefaults.buttonColors(containerColor = MatchTheme.CoolGray, contentColor = MatchTheme.Navy),
                 contentPadding = PaddingValues(0.dp)
             ) {
                 Icon(Icons.Outlined.Chat, null)

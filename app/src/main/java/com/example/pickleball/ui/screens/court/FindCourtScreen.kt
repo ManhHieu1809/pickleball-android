@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,9 @@ import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,7 +29,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.example.pickleball.data.model.UiState
+import com.example.pickleball.data.model.Venue
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.navigation.navigateToTab
 import com.example.pickleball.ui.screens.court.components.CompactCourtCard
@@ -33,12 +40,21 @@ import com.example.pickleball.ui.screens.court.components.LargeCourtCard
 import com.example.pickleball.ui.screens.home.components.BottomNav
 import com.example.pickleball.ui.screens.home.components.HomeTab
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.VenueViewModel
 
 @Composable
 fun FindCourtScreen(
     navController: NavController,
-    onCourtClick: (String) -> Unit
+    onVenueClick: (String) -> Unit,
+    venueViewModel: VenueViewModel = hiltViewModel()
 ) {
+    // Load venues từ API
+    LaunchedEffect(Unit) {
+        venueViewModel.loadActiveVenues()
+    }
+
+    val venuesState by venueViewModel.venuesState.collectAsState()
+
     Scaffold(
         containerColor = Color.White,
         topBar = { FindCourtTopBar() },
@@ -84,58 +100,90 @@ fun FindCourtScreen(
                 }
             }
 
-            item {
-                LargeCourtCard(
-                    title = "Ace Pickleball Club",
-                    rating = "4.9",
-                    reviewCount = "210",
-                    distance = "1.2 mi away • SoMa District",
-                    price = "$20",
-                    isIndoor = true,
-                    tags = listOf("Pro Shop", "Showers"),
-                    imageUrl = "https://picsum.photos/400/300?1",
-                    onClick = { onCourtClick("court_ace_01") }
-                )
-            }
+            when (venuesState) {
+                is UiState.Loading -> {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = PrimaryGreen)
+                        }
+                    }
+                }
+                is UiState.Success -> {
+                    val venues = (venuesState as UiState.Success<List<Venue>>).data
+                    if (venues.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No courts available", color = TextSecondaryLight, fontSize = 14.sp)
+                            }
+                        }
+                    } else {
+                        // Hiển thị 2 venue đầu dạng LargeCourtCard
+                        val largeVenues = venues.take(2)
+                        val compactVenues = venues.drop(2)
 
-            item {
-                LargeCourtCard(
-                    title = "Golden Gate Park Courts",
-                    rating = "4.5",
-                    reviewCount = "86",
-                    distance = "2.4 mi away • Golden Gate Park",
-                    price = "Free",
-                    isIndoor = false,
-                    tags = listOf("Public", "Lights"),
-                    imageUrl = "https://picsum.photos/400/300?2",
-                    primaryButtonText = "Join Waitlist",
-                    secondaryButtonText = "View Details",
-                    onClick = { onCourtClick("court_golden_02") }
-                )
-            }
+                        items(largeVenues) { venue ->
+                            LargeCourtCard(
+                                title = venue.name ?: "Court",
+                                rating = venue.rating?.toString() ?: "N/A",
+                                reviewCount = venue.reviewCount?.toString() ?: "0",
+                                distance = venue.address ?: "Unknown location",
+                                price = formatPrice(venue),
+                                isIndoor = false,
+                                tags = buildVenueTags(venue),
+                                imageUrl = venue.imageUrl ?: "https://picsum.photos/400/300?${venue.id}",
+                                onClick = { onVenueClick(venue.id.toString()) }
+                            )
+                        }
 
-            item {
-                CompactCourtCard(
-                    title = "Sunset Rec Center",
-                    price = "$15",
-                    distance = "3.1 mi away • Outdoor",
-                    statusText = "3 Courts Open",
-                    statusColor = Color(0xFF00C853),
-                    imageUrl = "https://picsum.photos/200/200?3",
-                    onClick = { onCourtClick("court_sunset_03") }
-                )
-            }
-
-            item {
-                CompactCourtCard(
-                    title = "The Post",
-                    price = "$45",
-                    distance = "5.2 mi away • Indoor",
-                    statusText = "Busy",
-                    statusColor = Color.Red,
-                    imageUrl = "https://picsum.photos/200/200?4",
-                    onClick = { onCourtClick("court_post_04") }
-                )
+                        items(compactVenues) { venue ->
+                            CompactCourtCard(
+                                title = venue.name ?: "Court",
+                                price = formatPrice(venue),
+                                distance = venue.address ?: "Unknown location",
+                                statusText = if (venue.isActive) "Open" else "Closed",
+                                statusColor = if (venue.isActive) Color(0xFF00C853) else Color.Red,
+                                imageUrl = venue.imageUrl ?: "https://picsum.photos/200/200?${venue.id}",
+                                onClick = { onVenueClick(venue.id.toString()) }
+                            )
+                        }
+                    }
+                }
+                is UiState.Error -> {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "Failed to load courts",
+                                    color = NavyDeep,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    (venuesState as UiState.Error).message,
+                                    color = TextSecondaryLight,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { venueViewModel.loadActiveVenues() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                                ) {
+                                    Text("Retry", color = NavyDeep, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> { /* Idle */ }
             }
 
             item {
@@ -145,6 +193,20 @@ fun FindCourtScreen(
             }
         }
     }
+}
+
+private fun formatPrice(venue: Venue): String {
+    // Nếu venue có thông tin giá thì hiển thị, không thì hiển thị mặc định
+    return venue.description?.let {
+        if (it.contains("free", ignoreCase = true)) "Free" else "View"
+    } ?: "View"
+}
+
+private fun buildVenueTags(venue: Venue): List<String> {
+    val tags = mutableListOf<String>()
+    if (venue.isActive) tags.add("Active")
+    venue.phone?.let { tags.add("Contact") }
+    return tags.ifEmpty { listOf("Court") }
 }
 
 @Composable
@@ -187,13 +249,13 @@ fun SearchBar() {
 fun FilterSection() {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            FilterChip(text = "San Francisco", isActive = true, icon = Icons.Default.Close)
+            FilterChip(text = "All Venues", isActive = true, icon = Icons.Default.Close)
         }
         item {
             FilterChip(text = "Availability", isActive = false, icon = Icons.Outlined.CalendarMonth)
         }
         item {
-            FilterChip(text = "Type", isActive = false, icon = Icons.Outlined.FilterAlt) // Icon minh họa
+            FilterChip(text = "Type", isActive = false, icon = Icons.Outlined.FilterAlt)
         }
     }
 }

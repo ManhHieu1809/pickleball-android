@@ -33,8 +33,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.pickleball.data.model.Court
+import com.example.pickleball.data.model.TimeSlot
+import com.example.pickleball.data.model.UiState
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.BookingViewModel
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 val PrimaryGreen = Color(0xFF00F684) // Electric Cyan
 val NavyDark = Color(0xFF050A30)     // Deep Navy
@@ -44,15 +53,77 @@ val WhitePure = Color(0xFFFFFFFF)
 
 @Composable
 fun CreateMatchScreen(
+    courtId: String?,
+    slotId: String?,
+    date: String?,
     navController: NavController,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    bookingViewModel: BookingViewModel = hiltViewModel()
 ) {
     // --- STATE ---
-    var selectedFormat by remember { mutableStateOf("Doubles") }
-    var paymentMode by remember { mutableStateOf("Split") }
-    var isRefereeEnabled by remember { mutableStateOf(false) }
-    var skillLevel by remember { mutableFloatStateOf(1350f) } // ELO
     var notes by remember { mutableStateOf("") }
+    
+    val courtState by bookingViewModel.courtDetailState.collectAsState()
+    val slotsState by bookingViewModel.slotsState.collectAsState()
+    
+    // Handle data from navigation arguments OR returned backstack result
+    val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
+    val returnedCourtId by savedStateHandle?.getStateFlow<String?>("returned_court_id", null)?.collectAsState() ?: remember { mutableStateOf(null) }
+    val returnedSlotId by savedStateHandle?.getStateFlow<String?>("returned_slot_id", null)?.collectAsState() ?: remember { mutableStateOf(null) }
+    val returnedDate by savedStateHandle?.getStateFlow<String?>("returned_date", null)?.collectAsState() ?: remember { mutableStateOf(null) }
+
+    var finalCourtId by remember { mutableStateOf(courtId) }
+    var finalSlotId by remember { mutableStateOf(slotId) }
+    var finalDate by remember { mutableStateOf(date) }
+
+    LaunchedEffect(returnedCourtId, returnedSlotId, returnedDate) {
+        if (returnedCourtId != null) finalCourtId = returnedCourtId
+        if (returnedSlotId != null) finalSlotId = returnedSlotId
+        if (returnedDate != null) finalDate = returnedDate
+    }
+
+    LaunchedEffect(finalCourtId, finalDate) {
+        finalCourtId?.toLongOrNull()?.let { id ->
+            bookingViewModel.loadCourtById(id)
+            if (finalDate != null) {
+                bookingViewModel.loadAvailableSlots(id, finalDate!!) 
+            }
+        }
+    }
+
+    val bookingState by bookingViewModel.bookingState.collectAsState()
+    LaunchedEffect(bookingState) {
+        if (bookingState is UiState.Success) {
+            bookingViewModel.resetBookingState()
+            navController.navigate(Routes.MATCH_CREATED)
+        }
+    }
+
+    val court = (courtState as? UiState.Success<Court>)?.data
+    val slots = (slotsState as? UiState.Success<List<TimeSlot>>)?.data ?: emptyList()
+    
+    val slotOriginal = slots.find { it.id?.toString() == finalSlotId } 
+        ?: slots.find { (it.startTime?.hashCode()?.toLong()?.toString()) == finalSlotId }
+        ?: slots.getOrNull(finalSlotId?.toIntOrNull() ?: -1)
+
+    // Formatted Data for UI
+    val locationTitle = court?.venueName ?: "Select Venue/Court"
+    val locationSubtitle = court?.courtName ?: "Tap to choose location"
+    
+    val dateDisplay = if (finalDate != null && finalDate != "null" && finalDate != "{date}") {
+        try {
+            val d = LocalDate.parse(finalDate)
+            "${d.month.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)} ${d.dayOfMonth}"
+        } catch(e: Exception) { finalDate }
+    } else "MM/DD"
+    
+    val timeDisplay = if (slotOriginal != null) {
+        try {
+            val s = LocalTime.parse(slotOriginal.startTime).format(DateTimeFormatter.ofPattern("hh:mm a"))
+            val e = LocalTime.parse(slotOriginal.endTime).format(DateTimeFormatter.ofPattern("hh:mm a"))
+            "$s - $e"
+        } catch (e: Exception) { "${slotOriginal.startTime}" }
+    } else "--:--"
 
     Scaffold(
         containerColor = WhitePure,
@@ -61,7 +132,31 @@ fun CreateMatchScreen(
         },
         bottomBar = {
             CreateMatchBottomBar(
-                onCreate = { navController.navigate(Routes.ESTIMATED_COST) }
+                onCreate = { 
+                    // Actually create match booking
+                    val startStr = slotOriginal?.startTime ?: "00:00:00"
+                    val endStr = slotOriginal?.endTime ?: "01:00:00"
+                    
+                    val formatTime = { t: String ->
+                        if (t.length == 5) "$t:00" else t
+                    }
+                    val fullStart = if (startStr.contains("T")) startStr else "${finalDate}T${formatTime(startStr)}"
+                    val fullEnd = if (endStr.contains("T")) endStr else "${finalDate}T${formatTime(endStr)}"
+                    
+                    val combinedNotes = "Notes: $notes"
+                    
+                    finalCourtId?.toLongOrNull()?.let { cId ->
+                        bookingViewModel.createCasualMatch(
+                            courtId = cId,
+                            startTime = fullStart,
+                            endTime = fullEnd,
+                            notes = combinedNotes
+                        )
+                    } ?: run {
+                        // User clicked without selecting a court first. This is empty state
+                        navController.navigate(Routes.FIND_COURT)
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -77,42 +172,29 @@ fun CreateMatchScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             SectionLabel("LOCATION")
-            LocationSelector(navController = navController)
+            LocationSelector(
+                navController = navController,
+                title = locationTitle,
+                subtitle = locationSubtitle
+            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 DateTimeInput(
                     label = "DATE",
-                    value = "Today, Oct 28",
+                    value = dateDisplay ?: "MM/DD",
                     icon = Icons.Default.CalendarToday,
                     modifier = Modifier.weight(1f)
                 )
                 DateTimeInput(
                     label = "TIME",
-                    value = "10:00 AM",
+                    value = timeDisplay,
                     icon = Icons.Default.Schedule,
                     modifier = Modifier.weight(1f)
                 )
             }
-            SectionLabel("FORMAT")
-            FormatSelector(
-                selected = selectedFormat,
-                onSelect = { selectedFormat = it }
-            )
-            SectionLabel("PAYMENT MODE")
-            PaymentModeSelector(
-                selected = paymentMode,
-                onSelect = { paymentMode = it }
-            )
+            SectionLabel("MATCH INFO")
+            MatchInfoDisplay()
 
-            SectionLabel("EXTRAS")
-            RefereeToggle(
-                checked = isRefereeEnabled,
-                onCheckedChange = { isRefereeEnabled = it }
-            )
-            SkillLevelSlider(
-                value = skillLevel,
-                onValueChange = { skillLevel = it }
-            )
             SectionLabel("MATCH RULES & NOTES")
             OutlinedTextField(
                 value = notes,
@@ -179,7 +261,7 @@ fun SectionLabel(text: String) {
 }
 
 @Composable
-fun LocationSelector(navController: NavController) {
+fun LocationSelector(navController: NavController, title: String, subtitle: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -201,8 +283,8 @@ fun LocationSelector(navController: NavController) {
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column {
-                Text("Venice Beach Courts", fontFamily = Lexend, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = NavyDark)
-                Text("1800 Ocean Front Walk", fontFamily = Lexend, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = NavyDark.copy(0.5f))
+                Text(title, fontFamily = Lexend, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = NavyDark)
+                Text(subtitle, fontFamily = Lexend, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = NavyDark.copy(0.5f))
             }
         }
         Icon(Icons.Default.ChevronRight, null, tint = NavyDark.copy(0.4f))
@@ -223,255 +305,106 @@ fun DateTimeInput(label: String, value: String, icon: ImageVector, modifier: Mod
         ) {
             Icon(icon, null, tint = NavyDark.copy(0.4f), modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(value, fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = NavyDark)
         }
     }
 }
 
 @Composable
-fun FormatSelector(selected: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Singles Option
-        FormatOption(
-            title = "Singles",
-            subtitle = "1 VS 1",
-            iconCount = 1,
-            isSelected = selected == "Singles",
-            onClick = { onSelect("Singles") },
-            modifier = Modifier.weight(1f)
-        )
-        // Doubles Option
-        FormatOption(
-            title = "Doubles",
-            subtitle = "2 VS 2",
-            iconCount = 2,
-            isSelected = selected == "Doubles",
-            onClick = { onSelect("Doubles") },
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-fun FormatOption(
-    title: String,
-    subtitle: String,
-    iconCount: Int,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val bgColor = if (isSelected) SoftMintLight.copy(0.3f) else CoolGrayLight
-    val borderColor = if (isSelected) PrimaryGreen else Color.Transparent
-    val iconColor = if (isSelected) NavyDark else NavyDark.copy(0.6f)
-
-    Box(
-        modifier = modifier
-            .height(96.dp)
-            .background(bgColor, RoundedCornerShape(12.dp))
-            .border(2.dp, borderColor, RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(12.dp)
-    ) {
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
-                repeat(iconCount) {
-                    Icon(Icons.Default.Person, null, tint = iconColor)
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(title, fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = NavyDark)
-            Text(subtitle, fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = NavyDark.copy(0.4f))
-        }
-
-        if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(16.dp)
-                    .background(PrimaryGreen, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Check, null, tint = NavyDark, modifier = Modifier.size(10.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun PaymentModeSelector(selected: String, onSelect: (String) -> Unit) {
-    Column {
+fun MatchInfoDisplay() {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Format & Players
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(CoolGrayLight, RoundedCornerShape(12.dp))
-                .padding(4.dp)
+                .border(1.dp, WhitePure.copy(0.6f), RoundedCornerShape(12.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Split Button
-            Button(
-                onClick = { onSelect("Split") },
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected == "Split") PrimaryGreen else Color.Transparent,
-                    contentColor = if (selected == "Split") NavyDark else NavyDark.copy(0.6f)
-                ),
-                elevation = if(selected == "Split") ButtonDefaults.buttonElevation(2.dp) else ButtonDefaults.buttonElevation(0.dp)
-            ) {
-                Icon(Icons.Default.PieChart, null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Split Equally", fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-
-            // Pay All Button
-            Button(
-                onClick = { onSelect("PayAll") },
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected == "PayAll") PrimaryGreen else Color.Transparent,
-                    contentColor = if (selected == "PayAll") NavyDark else NavyDark.copy(0.6f)
-                ),
-                elevation = if(selected == "PayAll") ButtonDefaults.buttonElevation(2.dp) else ButtonDefaults.buttonElevation(0.dp)
-            ) {
-                Icon(Icons.Default.Person, null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Pay for All", fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-        }
-        Text(
-            "Cost is split equally among all participating players.",
-            fontFamily = Lexend,
-            fontWeight = FontWeight.Medium,
-            fontSize = 11.sp,
-            color = NavyDark.copy(0.5f),
-            modifier = Modifier.padding(top = 6.dp, start = 4.dp)
-        )
-    }
-}
-
-@Composable
-fun RefereeToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(CoolGrayLight, RoundedCornerShape(12.dp))
-            .border(1.dp, WhitePure.copy(0.6f), RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .background(WhitePure, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.SportsScore, null, tint = PrimaryGreen)
+                Icon(Icons.Default.Person, null, tint = PrimaryGreen)
             }
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text("Referee", fontFamily = Lexend, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = NavyDark)
-                Text("Official tracking (Optional)", fontFamily = Lexend, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = NavyDark.copy(0.5f))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Doubles Format", fontFamily = Lexend, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = NavyDark)
+                Text("Requires 4 players to start", fontFamily = Lexend, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = NavyDark.copy(0.5f))
+            }
+            Surface(
+                color = SoftMintLight,
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Text(
+                    text = "AUTO",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NavyDark,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                )
             }
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = NavyDark,
-                checkedTrackColor = PrimaryGreen,
-                uncheckedThumbColor = WhitePure,
-                uncheckedTrackColor = NavyDark.copy(0.1f)
-            )
-        )
-    }
-}
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SkillLevelSlider(value: Float, onValueChange: (Float) -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(CoolGrayLight.copy(0.5f), RoundedCornerShape(12.dp))
-            .border(1.dp, CoolGrayLight, RoundedCornerShape(12.dp))
-            .padding(16.dp)
-    ) {
-        // Header Text
+
+        // Payment Mode
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CoolGrayLight, RoundedCornerShape(12.dp))
+                .border(1.dp, WhitePure.copy(0.6f), RoundedCornerShape(12.dp))
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "SKILL LEVEL PREFERENCE",
-                fontFamily = Lexend,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = NavyDark.copy(0.9f)
-            )
-            Surface(color = NavyDark, shape = RoundedCornerShape(4.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(WhitePure, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PieChart, null, tint = PrimaryGreen)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Split Cost (25%)", fontFamily = Lexend, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = NavyDark)
+                Text("Each player pays equal share", fontFamily = Lexend, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = NavyDark.copy(0.5f))
+            }
+            Surface(
+                color = SoftMintLight,
+                shape = RoundedCornerShape(6.dp)
+            ) {
                 Text(
-                    "ELO 1200 - 1500",
-                    color = WhitePure,
-                    fontSize = 12.sp,
+                    text = "FIXED",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = Lexend,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    color = NavyDark,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = 800f..2500f,
-            modifier = Modifier.fillMaxWidth().height(30.dp),
-            thumb = {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .shadow(6.dp, CircleShape)
-                        .background(PrimaryGreen, CircleShape)
-                        .border(4.dp, WhitePure, CircleShape)
-                )
-            },
-
-            track = { sliderState ->
-                val fraction = (sliderState.value - sliderState.valueRange.start) /
-                        (sliderState.valueRange.endInclusive - sliderState.valueRange.start)
-
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(10.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(CoolGrayLight)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .fillMaxHeight()
-                            .background(PrimaryGreen)
-                    )
-                }
-            }
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
+        // ELO Matching
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CoolGrayLight.copy(0.5f), RoundedCornerShape(12.dp))
+                .border(1.dp, PrimaryGreen.copy(0.3f), RoundedCornerShape(12.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("BEGINNER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDark.copy(0.4f), fontFamily = Lexend)
-            Text("INTERMEDIATE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDark.copy(0.4f), fontFamily = Lexend)
-            Text("PRO", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = NavyDark.copy(0.4f), fontFamily = Lexend)
+            Icon(Icons.Default.AddCircle, null, tint = PrimaryGreen)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                "System will automatically find players around your ELO level (+/- 200)",
+                fontFamily = Lexend,
+                fontWeight = FontWeight.Medium,
+                fontSize = 11.sp,
+                color = NavyDark.copy(0.7f),
+                lineHeight = 16.sp
+            )
         }
     }
 }
