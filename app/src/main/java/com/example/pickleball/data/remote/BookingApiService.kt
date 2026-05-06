@@ -4,6 +4,20 @@ import com.example.pickleball.data.model.*
 import retrofit2.Response
 import retrofit2.http.*
 
+data class MatchmakingRequest(
+    val userId: Long,
+    val role: String = "PLAYER",
+    val latitude: Double,
+    val longitude: Double
+)
+
+data class MatchmakingStatusResponse(
+    val status: String,        // "WAITING", "MATCHED"
+    val bookingId: Long? = null,
+    val rankedMatchId: Long? = null,
+    val match: RankedMatchDTO? = null
+)
+
 interface BookingApiService {
 
     @POST("bookings")
@@ -30,6 +44,36 @@ interface BookingApiService {
     @GET("bookings/{bookingId}/candidates")
     suspend fun getCasualMatchCandidates(@Path("bookingId") bookingId: Long): Response<ApiResponse<List<PlayerMatchDTO>>>
 
-    @POST("bookings/{bookingId}/join")
-    suspend fun joinCasualMatch(@Path("bookingId") bookingId: Long): Response<ApiResponse<CasualMatchDTO>>
+    @POST("bookings/ranked")
+    suspend fun createRankedMatch(@Body request: CreateBookingRequest): Response<ApiResponse<RankedMatchDTO>>
+
+    @GET("bookings/ranked/available")
+    suspend fun getAvailableRankedMatches(): Response<ApiResponse<List<RankedMatchDTO>>>
+
+    @GET("bookings/{bookingId}/ranked-candidates")
+    suspend fun getRankedMatchCandidates(@Path("bookingId") bookingId: Long): Response<ApiResponse<RankedMatchDTO>>
+
+    @POST("bookings/{bookingId}/check-in")
+    suspend fun checkIn(@Path("bookingId") bookingId: Long, @Body request: CheckInRequest): Response<ApiResponse<Void>>
+
+    @POST("bookings/{bookingId}/submit-result")
+    suspend fun submitMatchResult(@Path("bookingId") bookingId: Long, @Body request: SubmitMatchResultRequest): Response<ApiResponse<Void>>
+
+    @POST("bookings/{bookingId}/confirm-result")
+    suspend fun confirmMatchResult(@Path("bookingId") bookingId: Long, @Body request: ConfirmMatchResultRequest): Response<ApiResponse<Void>>
+
+    @POST("matchmaking/join")
+    suspend fun joinMatchmakingQueue(@Body request: MatchmakingRequest): Response<ApiResponse<String>>
+
+    @GET("matchmaking/status")
+    suspend fun getMatchmakingStatus(@Query("userId") userId: Long): Response<ApiResponse<MatchmakingStatusResponse>>
+
+    @POST("bookings/{bookingId}/accept-match")
+    suspend fun acceptMatch(
+        @Path("bookingId") bookingId: Long,
+        @Query("userId") userId: Long
+    ): Response<ApiResponse<RankedMatchDTO>>
+
+    @POST("bookings/{bookingId}/disputes")
+    suspend fun submitDispute(@Path("bookingId") bookingId: Long, @Body request: SubmitDisputeRequest): Response<ApiResponse<Void>>
 }

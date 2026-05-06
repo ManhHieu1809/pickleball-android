@@ -132,6 +132,7 @@ fun CreateMatchScreen(
         },
         bottomBar = {
             CreateMatchBottomBar(
+                isLoading = bookingState is UiState.Loading,
                 onCreate = { 
                     // Actually create match booking
                     val startStr = slotOriginal?.startTime ?: "00:00:00"
@@ -305,6 +306,13 @@ fun DateTimeInput(label: String, value: String, icon: ImageVector, modifier: Mod
         ) {
             Icon(icon, null, tint = NavyDark.copy(0.4f), modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = value,
+                fontFamily = Lexend,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+                color = NavyDark
+            )
         }
     }
 }
@@ -410,7 +418,7 @@ fun MatchInfoDisplay() {
 }
 
 @Composable
-fun CreateMatchBottomBar(onCreate: () -> Unit) {
+fun CreateMatchBottomBar(isLoading: Boolean, onCreate: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -418,23 +426,32 @@ fun CreateMatchBottomBar(onCreate: () -> Unit) {
             .padding(16.dp)
     ) {
         Button(
-            onClick = onCreate,
+            onClick = {
+                if (!isLoading) {
+                    onCreate()
+                }
+            },
+            enabled = !isLoading,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
                 .shadow(15.dp, spotColor = PrimaryGreen.copy(0.3f), shape = RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen, contentColor = NavyDark)
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen, contentColor = NavyDark, disabledContainerColor = CoolGrayLight)
         ) {
-            Icon(Icons.Default.AddCircle, null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                "CREATE MATCH",
-                fontFamily = Lexend,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
-                letterSpacing = 1.sp
-            )
+            if (isLoading) {
+                CircularProgressIndicator(color = NavyDark, modifier = Modifier.size(24.dp))
+            } else {
+                Icon(Icons.Default.AddCircle, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "CREATE MATCH",
+                    fontFamily = Lexend,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    letterSpacing = 1.sp
+                )
+            }
         }
     }
 }

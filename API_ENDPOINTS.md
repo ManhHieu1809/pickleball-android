@@ -1,7 +1,7 @@
 # Pickleball Platform - API Endpoints Reference
 
 > **FOR AI AGENTS**: Read this file to understand ALL existing APIs before implementing new features.
-> **Last Updated**: 2025-01-31
+> **Last Updated**: 2026-03-08
 
 ---
 
@@ -11,15 +11,19 @@
 |------------|-----------|-----------------|
 | AuthController | `/api/auth` | 4 |
 | UserController | `/api/users` | 1 |
-| AdminController | `/api/admin` | 4 |
+| **AdminController** | `/api/admin` | **23** |
 | VenueController | `/api/venues` | 11 |
 | CourtController | `/api/courts` | 6 |
-| BookingController | `/api/bookings` | 4 |
+| **BookingController** | `/api/bookings` | **19** |
+| **PlayerController** | `/api/players` | **3** |
+| **RefereeController** | `/api/referee` | **8** |
 | TimeSlotController | `/api/courts/{courtId}/slots` | 2 |
-| **VenueStaffController** | `/api/staff` | **7** |
+| VenueStaffController | `/api/staff` | 8 |
+| **MatchmakingController** | `/api/matchmaking` | **3** |
+| **WalletController** | `/api/wallet` | **4** |
 | HealthController | `/api/health` | 1 |
 
-**Total: 40 endpoints**
+**Total: 83 endpoints**
 
 ---
 
@@ -62,10 +66,29 @@ Response: { "accessToken", "refreshToken", "tokenType", "expiresIn", "user" }
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
+| `GET` | `/dashboard/stats` | Get aggregated dashboard stats | ✅ Admin |
 | `POST` | `/role-requests/venue-owner` | Submit venue owner request | ✅ Yes |
 | `GET` | `/role-requests/pending` | Get pending role requests | ✅ Admin |
 | `POST` | `/role-requests/{requestId}/approve` | Approve role request | ✅ Admin |
 | `POST` | `/role-requests/{requestId}/reject` | Reject role request | ✅ Admin |
+| `GET` | `/users` | Get paginated list of all users | ✅ Admin |
+| `GET` | `/users/stats` | Get user statistics | ✅ Admin |
+| `GET` | `/users/{userId}` | Get detailed user profile | ✅ Admin |
+| `GET` | `/bookings` | Get paginated list of bookings | ✅ Admin |
+| `GET` | `/bookings/stats` | Get booking statistics | ✅ Admin |
+| `GET` | `/bookings/{bookingId}` | Get detailed booking info | ✅ Admin |
+| `PUT` | `/bookings/{bookingId}/cancel` | Cancel a booking | ✅ Admin |
+| `GET` | `/venues` | Get paginated list of venues | ✅ Admin |
+| `GET` | `/venues/stats` | Get venue statistics | ✅ Admin |
+| `GET` | `/venues/{venueId}` | Get venue details | ✅ Admin |
+| `GET` | `/referee-requests/pending` | Get pending referee requests | ✅ Admin |
+| `POST` | `/referee-requests/{requestId}/approve` | Approve referee request | ✅ Admin |
+| `POST` | `/referee-requests/{requestId}/reject` | Reject referee request | ✅ Admin |
+| `GET` | `/disputes` | Get all disputes | ✅ Admin |
+| `POST` | `/disputes/{disputeId}/resolve` | Resolve a dispute | ✅ Admin |
+| `GET` | `/finance/stats` | Get finance stats | ✅ Admin |
+| `GET` | `/finance/chart` | Get finance chart | ✅ Admin |
+| `GET` | `/finance/transactions` | Get finance transactions | ✅ Admin |
 
 ---
 
@@ -105,16 +128,112 @@ Response: { "accessToken", "refreshToken", "tokenType", "expiresIn", "user" }
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
-| `POST` | `/` | Create booking | ✅ Yes |
-| `POST` | `/{bookingId}/join` | Join existing booking | ✅ Yes |
-| `POST` | `/{bookingId}/cancel` | Cancel booking | ✅ Yes |
+| `POST` | `/` | Create booking (auto-routes by type) | ✅ Yes |
 | `GET` | `/{bookingId}` | Get booking details | ✅ Yes |
+| `GET` | `/my` | Get current user's bookings | ✅ Yes |
+| `GET` | `/owner/{ownerId}` | Get bookings by owner | ✅ Owner |
+| `GET` | `/venue/{venueId}` | Get bookings by venue | ✅ Venue Owner |
+| `POST` | `/{bookingId}/join` | Join existing booking (deposit + Elo check) | ✅ Yes |
+| `POST` | `/{bookingId}/cancel` | Cancel booking | ✅ Yes |
+| `POST` | `/{bookingId}/check-in` | GPS Check-in at venue | ✅ Yes |
+| `POST` | `/{bookingId}/submit-result` | Referee submit match result | ✅ Referee |
+| `POST` | `/{bookingId}/confirm-result` | Player confirm result | ✅ Player |
+| **Casual Matches** | | | |
+| `POST` | `/casual` | Create casual match + find candidates | ✅ Yes |
+| `GET` | `/casual/available` | List PENDING casual matches | ❌ No |
+| `GET` | `/{bookingId}/candidates` | Get matching candidates for casual match | ✅ Yes |
+| **Ranked Matches** | | | |
+| `POST` | `/ranked` | Create ranked match | ✅ Yes |
+| `GET` | `/ranked/available` | List available ranked matches | ❌ No |
+| `GET` | `/{bookingId}/ranked-candidates` | Get candidates for ranked match | ✅ Yes |
+| `POST` | `/{bookingId}/submit-result` | Submit match result (Referee) | ✅ Referee |
+| `POST` | `/{bookingId}/confirm-result` | Confirm match result (Player) | ✅ Player |
+| `POST` | `/{bookingId}/disputes` | Submit dispute | ✅ Player |
 
 ### Booking Types (from WORKFLOW.md):
 - `PRIVATE` - Host pays 100%, no matching (✅ Implemented with Payment)
-- `CASUAL` - 4 players share cost, no Elo
-- `RANKED` - 4 players + 1 referee, Elo changes
+- `CASUAL` - 4 players share cost 25% each, Elo ±200 matchmaking (✅ Implemented)
+- `RANKED` - 4 players + 1 referee, Elo changes (✅ Implemented)
 - `WALK_IN` - Staff creates for walk-in customers (✅ Implemented)
+
+### Casual Match Endpoints Detail:
+
+**POST** `/api/bookings/casual` - Create Casual Match
+```json
+Request: {
+  "courtId": 1,
+  "startTime": "2026-03-10T14:00:00",
+  "endTime": "2026-03-10T15:00:00",
+  "creatorUserId": 5
+}
+Response: {
+  "booking": { "id", "courtId", "status": "PENDING", "bookingType": "CASUAL", "venueFee", "totalCost" },
+  "payment": { "transactionId", "status": "SUCCESS", "amount" },
+  "depositPerPlayer": 50000.00,
+  "depositCurrency": "VND",
+  "currentPlayerCount": 1,
+  "requiredPlayerCount": 4,
+  "candidates": [
+    { "userId": 10, "currentElo": 1050, "loyaltyTier": "BRONZE" },
+    { "userId": 15, "currentElo": 980, "loyaltyTier": "SILVER" }
+  ]
+}
+```
+
+**GET** `/api/bookings/casual/available` - Browse Available Casual Matches
+```json
+Response: [
+  {
+    "booking": { "id": 5, "status": "PENDING", "bookingType": "CASUAL" },
+    "depositPerPlayer": 50000.00,
+    "currentPlayerCount": 2,
+    "requiredPlayerCount": 4
+  }
+]
+```
+
+**GET** `/api/bookings/{bookingId}/candidates` - Get Matching Candidates
+```json
+Response: [
+  { "userId": 10, "currentElo": 1050, "loyaltyTier": "BRONZE" },
+  { "userId": 15, "currentElo": 980, "loyaltyTier": "SILVER" }
+]
+```
+
+**POST** `/api/bookings/{bookingId}/join` - Join Casual Match (deposit 25%, Elo check)
+```json
+Request: { "userId": 10 }
+Response: {
+  "id": 5, "status": "PENDING|CONFIRMED", "bookingType": "CASUAL",
+  "payment": { "transactionId", "status": "SUCCESS", "amount": 50000.00 }
+}
+Note: Status auto-changes to CONFIRMED when 4 players have paid
+```
+
+---
+
+## 🏃 PlayerController (`/api/players`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `PUT` | `/location` | Update player GPS location (from Android app) | ✅ Yes |
+| `GET` | `/{userId}/elo-history` | Get Elo history | ✅ Yes |
+| `GET` | `/{userId}` | Get player profile | ✅ Yes |
+
+**PUT** `/api/players/location` - Update Player GPS Location
+```json
+Request: {
+  "userId": 5,
+  "latitude": 21.0285,
+  "longitude": 105.8542
+}
+Response: {
+  "success": true,
+  "data": "Location updated successfully"
+}
+Note: Called by Android app when GPS is enabled or when searching for matches.
+Used by matchmaking to filter players within 15km radius of venue.
+```
 
 ---
 
@@ -125,6 +244,7 @@ Response: { "accessToken", "refreshToken", "tokenType", "expiresIn", "user" }
 | `POST` | `/login` | Staff login, returns JWT | ❌ No |
 | `POST` | `/` | Create new staff | ✅ Venue Owner |
 | `GET` | `/venue/{venueId}` | Get all staff for venue | ✅ Venue Owner |
+| `GET` | `/owner/{ownerId}` | Get all staff for owner | ✅ Venue Owner |
 | `PUT` | `/{staffId}/deactivate` | Deactivate staff | ✅ Venue Owner |
 | `PUT` | `/{staffId}/activate` | Activate staff | ✅ Venue Owner |
 | `PUT` | `/{staffId}/permissions` | Update staff permissions | ✅ Venue Owner |
@@ -490,6 +610,220 @@ Response: { "accessToken", "refreshToken", "tokenType", "expiresIn", "user" }
 
 ---
 
+## 👀 RefereeController (`/api/referee`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/test/generate` | Generate 10 random test questions (2 per category) | ✅ Player |
+| `POST` | `/test/submit` | Submit test answers, auto-creates referee request if ≥9/10 | ✅ Player |
+| `GET` | `/test/history?userId={id}` | Get test attempt history for a player | ✅ Player |
+| `GET` | `/profile?userId={id}` | Get referee profile (trust score, match count, etc.) | ✅ Referee |
+| `PUT` | `/{refereeId}/availability?isReady={true/false}` | Update referee's availability status | ✅ Referee |
+| `GET` | `/{refereeId}/matches?status={status}` | Get assigned matches for referee (status: UPCOMING or HISTORY) | ✅ Referee |
+| `POST` | `/matches/{matchId}/result` | Referee submits match result (score + winning team) | ✅ Referee |
+| `GET` | `/{refereeId}/disputes` | Get dispute history for referee | ✅ Referee |
+| `POST` | `/disputes` | Player submits dispute against referee's result | ✅ Player |
+| `POST` | `/disputes/{disputeId}/evidence` | Referee submits evidence for dispute (within 24h) | ✅ Referee |
+
+### Generate Test
+```
+GET /api/referee/test/generate
+
+Response: [
+  {
+    "id": 1,
+    "category": "SCORING",
+    "questionText": "In a standard Pickleball game, what is the winning score?",
+    "optionA": "15 points",
+    "optionB": "11 points",
+    "optionC": "21 points",
+    "optionD": "25 points"
+  },
+  ... (10 questions total)
+]
+```
+
+### Submit Test
+```
+POST /api/referee/test/submit
+
+Request:
+{
+  "userId": 1,
+  "answers": {
+    "1": "B",
+    "2": "A",
+    "3": "C",
+    ... (10 answers, questionId -> answer)
+  }
+}
+
+Response:
+{
+  "attemptId": 1,
+  "userId": 1,
+  "score": 9,
+  "totalQuestions": 10,
+  "passed": true,
+  "attemptedAt": "2026-03-08T15:30:00",
+  "message": "Congratulations! You passed the referee test. Your request is pending admin approval."
+}
+```
+
+### Submit Match Result (Referee Only)
+```
+POST /api/referee/matches/{matchId}/result
+
+Request:
+{
+  "refereeUserId": 5,
+  "teamAScore": 11,
+  "teamBScore": 7,
+  "winningTeam": "A"
+}
+```
+
+### Get Referee Matches
+```
+GET /api/referee/{refereeId}/matches?status=UPCOMING
+
+Response:
+[
+  {
+    "rankedMatchId": 1,
+    "matchStatus": "PENDING",
+    "booking": {
+      "id": 100,
+      "courtId": 1,
+      "startTime": "2026-03-10T14:00:00",
+      "endTime": "2026-03-10T15:00:00",
+      "bookingType": "RANKED",
+      "status": "PENDING",
+      "venueFee": 100000.0,
+      "refereeFee": 50000.0
+    },
+    "totalCost": 150000.0,
+    "refereeAssigned": true
+  }
+]
+```
+
+### Submit Dispute (Player)
+```
+POST /api/referee/disputes
+
+Request:
+{
+  "rankedMatchId": 1,
+  "reportingPlayerId": 2,
+  "reason": "Referee reported wrong score",
+  "evidence": "[\"https://photo1.jpg\",\"https://video1.mp4\"]"
+}
+```
+
+### Submit Referee Evidence
+```
+POST /api/referee/disputes/{disputeId}/evidence
+
+Request:
+{
+  "refereeUserId": 5,
+  "evidenceUrl": "https://drive.google.com/evidence-folder",
+  "response": "The score was correct, here is the scorecard photo"
+}
+```
+
+---
+
+## 👨‍💼 AdminController - Referee & Dispute Endpoints (`/api/admin`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/referee-requests/{requestId}/approve?adminId={id}` | Approve referee registration request | ✅ Admin |
+| `POST` | `/referee-requests/{requestId}/reject?adminId={id}` | Reject referee registration request | ✅ Admin |
+| `GET` | `/disputes` | Get all disputes | ✅ Admin |
+| `GET` | `/disputes/{disputeId}` | Get dispute details | ✅ Admin |
+| `POST` | `/disputes/{disputeId}/resolve` | Resolve dispute (UPHOLD or OVERTURN) | ✅ Admin |
+
+### Resolve Dispute (Admin)
+```
+POST /api/admin/disputes/{disputeId}/resolve
+
+Request:
+{
+  "adminId": 1,
+  "decision": "Referee's evidence confirms the reported score was correct",
+  "decisionType": "UPHOLD"
+}
+
+decisionType: "UPHOLD" (referee correct) or "OVERTURN" (referee wrong, penalty applied)
+```
+
+---
+
+## 💳 WalletController (`/api/wallet`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/` | Get current user's wallet balance | ✅ Yes |
+| `GET` | `/transactions` | Get current user's transaction history | ✅ Yes |
+| `POST` | `/topup` | Top up the wallet with a specified amount (mock) | ✅ Yes |
+| `POST` | `/withdraw` | Withdraw funds from the wallet (mock) | ✅ Yes |
+
+### Example Request/Response
+
+**Top Up:**
+```json
+POST /api/wallet/topup
+Request: 
+{ 
+  "amount": 100000, 
+  "description": "Nạp tiền vào ví" 
+}
+Response: 
+{ "userId": 1, "balance": 150000.0, "updatedAt": "2026-05-04T10:00:00" }
+```
+
+**Withdraw:**
+```json
+POST /api/wallet/withdraw
+Request: 
+{ 
+  "amount": 50000, 
+  "description": "Rút tiền về tài khoản ngân hàng" 
+}
+Response: 
+{ "userId": 1, "balance": 100000.0, "updatedAt": "2026-05-04T10:05:00" }
+```
+
+---
+
+## 🤝 MatchmakingController (`/api/matchmaking`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/join` | Join the Ranked matchmaking queue | ✅ Yes |
+| `POST` | `/leave` | Leave the Ranked matchmaking queue | ✅ Yes |
+| `GET` | `/status` | Check the current queue status for a user | ✅ Yes |
+
+### Example Request/Response
+
+**Join Queue:**
+```json
+POST /api/matchmaking/join
+Request: 
+{
+  "userId": 5,
+  "role": "PLAYER",
+  "latitude": 21.028511,
+  "longitude": 105.804817
+}
+Response: 
+{ "ticketId": 1, "userId": 5, "role": "PLAYER", "status": "WAITING" }
+```
+
+---
+
 ## 🏥 HealthController (`/api/health`)
 
 | Method | Endpoint | Description | Auth Required |
@@ -514,6 +848,9 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
 - `/api/venues/{venueId}`
 - `/api/courts/**` (GET methods)
 - `/api/courts/{courtId}/slots` (GET)
+- `/api/referee/**`
+- `/api/players/**`
+- `/api/admin/**`
 
 ---
 

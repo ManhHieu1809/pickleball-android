@@ -37,7 +37,8 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun MatchStartingScreen(
-    navController: NavController
+    navController: NavController,
+    viewModel: com.example.pickleball.viewmodel.RankedMatchViewModel
 ) {
     // --- Logic đếm ngược ---
     var countdown by remember { mutableIntStateOf(3) }
@@ -54,8 +55,10 @@ fun MatchStartingScreen(
             delay(16)
         }
 
-        // Hết giờ -> Chuyển sang màn hình chơi game chính thức
-        // navController.navigate(Routes.IN_GAME)
+        // Hết giờ → Trận bắt đầu, chuyển về Home (trọng tài sẽ quản lý từ đây)
+        navController.navigate(Routes.HOME) {
+            popUpTo(0) { inclusive = true }
+        }
     }
 
     Scaffold(containerColor = NavyBg) { paddingValues ->
@@ -79,7 +82,13 @@ fun MatchStartingScreen(
                     MatchStartingTitle()
 
                     Spacer(modifier = Modifier.height(40.dp))
-                    PlayersGrid()
+                    
+                    val matchmakingState by viewModel.matchmakingState.collectAsState()
+                    val playerCandidates = if (matchmakingState is com.example.pickleball.data.model.UiState.Success) {
+                        (matchmakingState as com.example.pickleball.data.model.UiState.Success).data.playerCandidates ?: emptyList()
+                    } else emptyList()
+
+                    PlayersGrid(playerCandidates)
                 }
                 GameLaunchingPanel(countdown, progress)
             }
@@ -174,7 +183,12 @@ fun MatchStartingTitle() {
 }
 
 @Composable
-fun PlayersGrid() {
+fun PlayersGrid(playerCandidates: List<com.example.pickleball.data.model.PlayerMatchDTO>) {
+    val p1 = playerCandidates.getOrNull(0)?.fullName ?: "YOU"
+    val p2 = playerCandidates.getOrNull(1)?.fullName ?: "PARTNER"
+    val p3 = playerCandidates.getOrNull(2)?.fullName ?: "OPPONENT 1"
+    val p4 = playerCandidates.getOrNull(3)?.fullName ?: "OPPONENT 2"
+
     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
         // VS Circle Center
         Box(
@@ -198,8 +212,8 @@ fun PlayersGrid() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
-                PlayerAvatar(name = "PICKLERICK", isReady = true, delay = 0)
-                PlayerAvatar(name = "DUO_PARTNER", isReady = true, delay = 100)
+                PlayerAvatar(name = p1, isReady = true, delay = 0)
+                PlayerAvatar(name = p2, isReady = true, delay = 100)
             }
 
             Spacer(modifier = Modifier.width(20.dp))
@@ -208,8 +222,8 @@ fun PlayersGrid() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
-                PlayerAvatar(name = "OPPONENT 1", isReady = true, delay = 200)
-                PlayerAvatar(name = "OPPONENT 2", isReady = true, delay = 300)
+                PlayerAvatar(name = p3, isReady = true, delay = 200)
+                PlayerAvatar(name = p4, isReady = true, delay = 300)
             }
         }
     }

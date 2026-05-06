@@ -35,10 +35,17 @@ import com.example.pickleball.ui.screens.onboarding.OnboardingScreens
 import com.example.pickleball.ui.screens.profile.wallet.AddFundsScreen
 import com.example.pickleball.ui.screens.profile.wallet.ConfirmWithdrawalScreen
 import com.example.pickleball.ui.screens.profile.LeaderboardScreen
+import com.example.pickleball.ui.screens.referee.AICertificationQuizScreen
+import com.example.pickleball.ui.screens.referee.DisputeCenterScreen
+import com.example.pickleball.ui.screens.referee.MatchCenterScreen
+import com.example.pickleball.ui.screens.referee.MatchesScreen
+import com.example.pickleball.ui.screens.referee.RefereeHubScreen
+import com.example.pickleball.ui.screens.referee.RefereeDashboardScreen
 import com.example.pickleball.ui.screens.profile.MatchAnalysisScreen
 import com.example.pickleball.ui.screens.profile.MatchHistoryScreen
 import com.example.pickleball.ui.screens.profile.wallet.MyWalletScreen
 import com.example.pickleball.ui.screens.profile.ProfileScreen
+import com.example.pickleball.ui.screens.profile.SettingsScreen
 import com.example.pickleball.ui.screens.profile.wallet.WithdrawFundsScreen
 import com.example.pickleball.ui.screens.profile.wallet.WithdrawalSuccessScreen
 import com.example.pickleball.ui.screens.register.RegisterScreen
@@ -312,6 +319,14 @@ fun AppNavigation() {
         }
 
         composable(
+            route = Routes.SETTINGS,
+            enterTransition = { slideInHorizontally { it } + fadeIn() },
+            popExitTransition = { slideOutHorizontally { it } + fadeOut() }
+        ) {
+            SettingsScreen()
+        }
+
+        composable(
             route = Routes.LEADERBOARD,
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
@@ -319,6 +334,94 @@ fun AppNavigation() {
             LeaderboardScreen(
                 navController = navController,
                 onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.AI_QUIZ,
+            enterTransition = { slideInVertically { it } + fadeIn() },
+            popExitTransition = { slideOutVertically { it } + fadeOut() }
+        ) {
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RefereeViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            AICertificationQuizScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+
+        composable(
+            route = Routes.REFEREE_HUB,
+            enterTransition = { slideInVertically { it } + fadeIn() },
+            popExitTransition = { slideOutVertically { it } + fadeOut() }
+        ) {
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RefereeViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            RefereeHubScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+
+        composable(
+            route = Routes.REFEREE_DASHBOARD,
+            enterTransition = { fadeIn() },
+            popExitTransition = { fadeOut() }
+        ) { backStackEntry ->
+            val parentEntry = androidx.compose.runtime.remember(backStackEntry) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RefereeViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            RefereeDashboardScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+
+        composable(route = Routes.REFEREE_MATCHES) { backStackEntry ->
+            val parentEntry = androidx.compose.runtime.remember(backStackEntry) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RefereeViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            MatchesScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+
+        composable(
+            route = Routes.MATCH_DUTY_SCOREBOARD,
+            arguments = listOf(navArgument("matchId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val matchId = backStackEntry.arguments?.getLong("matchId") ?: return@composable
+            val parentEntry = androidx.compose.runtime.remember(backStackEntry) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RefereeViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            MatchCenterScreen(
+                navController = navController,
+                viewModel = viewModel,
+                matchId = matchId
+            )
+        }
+
+        composable(
+            route = Routes.DISPUTE_CENTER,
+            arguments = listOf(navArgument("disputeId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val disputeId = backStackEntry.arguments?.getLong("disputeId") ?: return@composable
+            val parentEntry = androidx.compose.runtime.remember(backStackEntry) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RefereeViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            DisputeCenterScreen(
+                navController = navController,
+                viewModel = viewModel,
+                disputeId = disputeId
             )
         }
 
@@ -384,8 +487,13 @@ fun AppNavigation() {
             enterTransition = { slideInHorizontally { it } + fadeIn() },
             popExitTransition = { slideOutHorizontally { it } + fadeOut() }
         ) {
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PROFILE)
+            }
+            val viewModel: com.example.pickleball.viewmodel.ProfileViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
             MatchHistoryScreen(
                 navController = navController,
+                viewModel = viewModel,
                 onBackClick = { navController.popBackStack() }
             )
         }
@@ -406,8 +514,13 @@ fun AppNavigation() {
             enterTransition = { slideInVertically { it } + fadeIn() },
             popExitTransition = { slideOutVertically { it } + fadeOut() }
         ) {
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PRE_MATCH_LOBBY)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RankedMatchViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
             PreMatchLobbyScreen(
                 navController = navController,
+                viewModel = viewModel,
                 onBackClick = { navController.popBackStack() }
             )
         }
@@ -420,18 +533,40 @@ fun AppNavigation() {
         }
 
         composable(Routes.SEARCHING_MATCH) {
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PRE_MATCH_LOBBY)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RankedMatchViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
             SearchingMatchScreen(
                 navController = navController,
-                onCancel = { navController.popBackStack() }
+                viewModel = viewModel,
+                onCancel = { 
+                    viewModel.stopMatchmaking()
+                    navController.popBackStack() 
+                }
             )
         }
 
         composable (Routes.MATCH_FOUND){
-            MatchFoundScreen(navController = navController)
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PRE_MATCH_LOBBY)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RankedMatchViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            MatchFoundScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
         }
 
         composable(Routes.MATCH_STARTING) {
-            MatchStartingScreen(navController = navController)
+            val parentEntry = androidx.compose.runtime.remember(it) {
+                navController.getBackStackEntry(Routes.PRE_MATCH_LOBBY)
+            }
+            val viewModel: com.example.pickleball.viewmodel.RankedMatchViewModel = androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+            MatchStartingScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
         }
 
         composable(Routes.CREATE_MATCH) {

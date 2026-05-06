@@ -40,6 +40,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun SearchingMatchScreen(
     navController: NavController,
+    viewModel: com.example.pickleball.viewmodel.RankedMatchViewModel,
     onCancel: () -> Unit
 ) {
     // Animation States
@@ -63,10 +64,24 @@ fun SearchingMatchScreen(
         animationSpec = infiniteRepeatable(tween(3000, easing = LinearEasing)), label = "Spin"
     )
 
+    // Timer State
+    var waitSeconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
-        delay(5000)
-        navController.navigate(Routes.MATCH_FOUND) {
-            popUpTo(Routes.PRE_MATCH_LOBBY) { inclusive = false }
+        while (true) {
+            delay(1000)
+            waitSeconds++
+        }
+    }
+
+    val matchmakingState by viewModel.matchmakingState.collectAsState()
+
+    LaunchedEffect(matchmakingState) {
+        if (matchmakingState is com.example.pickleball.data.model.UiState.Success) {
+            // Once match is found, wait 2 seconds before cutting over to MATCH_FOUND
+            delay(2000)
+            navController.navigate(Routes.MATCH_FOUND) {
+                popUpTo(Routes.PRE_MATCH_LOBBY) { inclusive = false }
+            }
         }
     }
 
@@ -81,9 +96,15 @@ fun SearchingMatchScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                SearchHeader(spinRotation)
+                SearchHeader(spinRotation, waitSeconds)
+                val playerProfile by viewModel.playerProfileState.collectAsState()
+                val currentName = if (playerProfile is com.example.pickleball.data.model.UiState.Success) {
+                    val data = (playerProfile as com.example.pickleball.data.model.UiState.Success).data
+                    data.fullName ?: "Player ${data.userId}"
+                } else "You"
+
                 Box(contentAlignment = Alignment.Center) {
-                    AvatarGroup( r1 = ripple1.value, r2 = ripple2.value, r3 = ripple3.value)
+                    AvatarGroup( r1 = ripple1.value, r2 = ripple2.value, r3 = ripple3.value, hostName = currentName)
                 }
                 SearchFooter(onCancel)
             }
@@ -144,7 +165,11 @@ fun MapBlock(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun SearchHeader(spinRotation: Float) {
+fun SearchHeader(spinRotation: Float, waitSeconds: Int) {
+    val minutes = waitSeconds / 60
+    val seconds = waitSeconds % 60
+    val formattedTime = String.format("%d:%02d", minutes, seconds)
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // Status Badge
         Surface(
@@ -194,7 +219,7 @@ fun SearchHeader(spinRotation: Float) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            "Estimated Wait: 0:45",
+            "Estimated Wait: $formattedTime",
             fontFamily = Lexend,
             fontWeight = FontWeight.Medium,
             fontSize = 12.sp,
@@ -245,7 +270,8 @@ fun RippleCircle(progress: Float) {
 fun AvatarGroup(
     r1: Float,
     r2: Float,
-    r3: Float
+    r3: Float,
+    hostName: String
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -303,7 +329,7 @@ fun AvatarGroup(
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "PickleRick_99",
+                hostName,
                 fontFamily = Lexend,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
@@ -315,11 +341,12 @@ fun AvatarGroup(
                 fontSize = 12.sp
             )
             Text(
-                "SarahSmash",
+                "Searching...",
                 fontFamily = Lexend,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Light,
+                fontStyle = FontStyle.Italic,
                 fontSize = 14.sp,
-                color = Color.White
+                color = Color.White.copy(0.6f)
             )
         }
 

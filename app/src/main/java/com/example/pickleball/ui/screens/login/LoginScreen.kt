@@ -57,7 +57,7 @@ fun LoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // React to login state changes
+
     LaunchedEffect(loginState) {
         when (loginState) {
             is UiState.Success -> {
@@ -161,7 +161,10 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge // Input text dùng NotoSans
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = NavyDeep,
+                            fontWeight = FontWeight.Medium
+                        )
                     )
 
                     Spacer(Modifier.height(16.dp))
@@ -188,7 +191,10 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = NavyDeep,
+                            fontWeight = FontWeight.Medium
+                        )
                     )
 
                     Spacer(Modifier.height(8.dp))

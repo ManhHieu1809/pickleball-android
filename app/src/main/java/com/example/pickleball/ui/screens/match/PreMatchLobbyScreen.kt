@@ -42,12 +42,16 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.ui.theme.*
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.pickleball.viewmodel.RankedMatchViewModel
+import com.example.pickleball.data.model.UiState
 
 val NavyDarker = Color(0xFF020617)
 
 @Composable
 fun PreMatchLobbyScreen(
     navController: NavController,
+    viewModel: RankedMatchViewModel = hiltViewModel(),
     onBackClick: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "LobbyAnim")
@@ -71,6 +75,16 @@ fun PreMatchLobbyScreen(
     )
 
     var selectedRadius by remember { mutableIntStateOf(10) }
+    
+    val playerProfileState by viewModel.playerProfileState.collectAsState()
+    
+    val eloScore = if (playerProfileState is UiState.Success) {
+        (playerProfileState as UiState.Success).data.currentElo.toString()
+    } else "..."
+    
+    val rankTier = if (playerProfileState is UiState.Success) {
+        (playerProfileState as UiState.Success).data.loyaltyTier ?: "BRONZE"
+    } else "..."
 
     Scaffold(containerColor = NavyDarker) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -98,7 +112,7 @@ fun PreMatchLobbyScreen(
                     ) {
                         RankDiamond(spinRotation)
                         Spacer(modifier = Modifier.height(16.dp))
-                        RankTitle()
+                        RankTitle(rankTier)
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
@@ -108,7 +122,7 @@ fun PreMatchLobbyScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                LobbyStatsRow(pulseScale)
+                LobbyStatsRow(pulseScale, eloScore)
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -123,7 +137,10 @@ fun PreMatchLobbyScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                StartButton { navController.navigate(Routes.SEARCHING_MATCH) }
+                StartButton { 
+                    viewModel.startMatchmaking()
+                    navController.navigate(Routes.SEARCHING_MATCH) 
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -257,10 +274,10 @@ private fun RankDiamond(spinRotation: Float) {
 }
 
 @Composable
-private fun RankTitle() {
+private fun RankTitle(rankTier: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "PLATINUM IV",
+            text = rankTier,
             fontFamily = Lexend,
             fontWeight = FontWeight.Black,
             fontStyle = FontStyle.Italic,
@@ -331,7 +348,7 @@ private fun InviteDuoButton(modifier: Modifier = Modifier, navController: NavCon
 }
 
 @Composable
-private fun LobbyStatsRow(pulseScale: Float) {
+private fun LobbyStatsRow(pulseScale: Float, eloScore: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
@@ -339,7 +356,7 @@ private fun LobbyStatsRow(pulseScale: Float) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("ELO SCORE", fontFamily = Lexend, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(0.5f), letterSpacing = 2.sp)
-            Text("1,850", fontFamily = Lexend, fontWeight = FontWeight.Black, fontSize = 24.sp, color = Color.White)
+            Text(eloScore, fontFamily = Lexend, fontWeight = FontWeight.Black, fontSize = 24.sp, color = Color.White)
         }
 
         Spacer(modifier = Modifier.width(32.dp))

@@ -31,8 +31,24 @@ fun HomeScreen(
 ) {
     var selectedTab by remember { mutableStateOf(HomeTab.HOME) }
 
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || 
+                      permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            profileViewModel.triggerLocationUpload()
+        }
+    }
+
     // Load dữ liệu thật từ API
     LaunchedEffect(Unit) {
+        permissionLauncher.launch(
+            arrayOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
         profileViewModel.loadCurrentUser()
         venueViewModel.loadActiveVenues()
     }

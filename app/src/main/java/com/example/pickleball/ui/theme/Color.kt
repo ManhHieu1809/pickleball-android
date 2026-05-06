@@ -16,3 +16,11 @@ val TextSecondaryDark = Color(0xFFCBD5E1)
 
 val SurfaceCardColor = Color(0xFFE8EBF0)
 val AccentMint = Color(0xFFD6FFF3)
+
+// Referee Hub Stitch UI Colors
+val RefereeBackground = Color(0xFF0A0E1A)
+val RefereePrimary = Color(0xFFCCFF00)
+val RefereeSurface = Color(0xFF141928)
+val RefereeSurfaceHigh = Color(0xFF1A1F2F)
+val RefereeTextPrimary = Color.White
+val RefereeTextSecondary = Color(0xFFA7AABB)

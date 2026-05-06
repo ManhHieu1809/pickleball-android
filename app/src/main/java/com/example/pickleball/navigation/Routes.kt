@@ -22,6 +22,9 @@ object Routes {
     const val CONFIRM_JOIN = "confirm_join/{matchId}"
     const val MATCH_JOINED_SUCCESS = "match_joined_success"
     const val LEADERBOARD = "leaderboard"
+    const val ELO_HISTORY = "elo_history"
+    const val AI_QUIZ = "ai_quiz"
+    const val CERTIFICATION_RESULT = "certification_result"
     const val WALLET = "wallet"
     const val ADD_FUNDS = "add_funds"
     const val WITHDRAW_FUNDS = "withdraw_funds"
@@ -38,6 +41,15 @@ object Routes {
     const val CREATE_MATCH_WITH_SLOT = "create_match/{courtId}/{slotId}/{date}"
     const val ESTIMATED_COST = "estimated_cost"
     const val MATCH_CREATED = "match_created"
+    const val REFEREE_HUB = "referee_hub"
+    const val REFEREE_DASHBOARD = "referee_dashboard"
+    const val REFEREE_MATCHES = "referee_matches"
+    const val MATCH_DUTY_SCOREBOARD = "match_duty/{matchId}"
+    const val DISPUTE_CENTER = "dispute_center/{disputeId}"
+    const val SETTINGS = "settings"
+
+    fun matchDutyRoute(matchId: Long): String = "match_duty/$matchId"
+    fun disputeCenterRoute(disputeId: Long): String = "dispute_center/$disputeId"
 }
 
 fun NavController.navigateToTab(route: String) {

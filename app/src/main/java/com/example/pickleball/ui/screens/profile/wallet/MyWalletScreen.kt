@@ -26,10 +26,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.ui.screens.booking.CoolGray
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.WalletViewModel
+import java.text.NumberFormat
+import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Date
 
 // --- Data Models ---
 data class Transaction(
@@ -52,52 +58,88 @@ val transactions = listOf(
 @Composable
 fun MyWalletScreen(
     navController: NavController,
+    viewModel: WalletViewModel = hiltViewModel(),
     onBackClick: () -> Unit
 ) {
+    val walletBalance by viewModel.walletBalance.collectAsState()
+    val apiTransactions by viewModel.transactions.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.fetchWalletData()
+    }
+
+    val mappedTransactions = apiTransactions.map { tx ->
+        val isPositive = tx.transactionType == "TOP_UP" || tx.transactionType == "REFUND"
+        val icon = if (isPositive) Icons.Default.AddCard else Icons.Default.Payment
+
+        // Simple date formatting mock
+        val dateGroup = "Recent"
+
+        Transaction(
+            title = tx.description,
+            subtitle = tx.transactionType,
+            amount = "${if (isPositive) "+" else "-"} ${NumberFormat.getCurrencyInstance(Locale("vi", "VN")).format(tx.amount)}",
+            isPositive = isPositive,
+            icon = icon,
+            dateGroup = dateGroup
+        )
+    } ?: emptyList()
+
     Scaffold(
         containerColor = Color.White,
         topBar = { WalletTopBar(onBackClick) }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 20.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // 1. Balance Card
-            item { BalanceCard() }
-
-            // 2. Action Buttons
-            item { WalletActionButtons(navController) }
-
-            // 3. Filters
-            item { TransactionFilters() }
-
-            // 4. Recent Activity List
-            item {
-                Text(
-                    "Recent Activity",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = NavyDeep
-                )
+        if (isLoading && walletBalance == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
             }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. Balance Card
+                item { BalanceCard(walletBalance?.balance ?: 0.0) }
 
-            val grouped = transactions.groupBy { it.dateGroup }
-            grouped.forEach { (date, items) ->
+                // 2. Action Buttons
+                item { WalletActionButtons(navController) }
+
+                // 3. Filters
+                item { TransactionFilters() }
+
+                // 4. Recent Activity List
                 item {
                     Text(
-                        date.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
+                        "Recent Activity",
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = NavyDeep.copy(0.5f),
-                        letterSpacing = 1.sp
+                        color = NavyDeep
                     )
                 }
-                items(items) { transaction ->
-                    TransactionItem(transaction)
+
+                val grouped = mappedTransactions.groupBy { it.dateGroup }
+                if (grouped.isEmpty()) {
+                    item { Text("No transactions yet", color = Color.Gray) }
+                } else {
+                    grouped.forEach { (date, items) ->
+                        item {
+                            Text(
+                                date.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NavyDeep.copy(0.5f),
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        items(items) { transaction ->
+                            TransactionItem(transaction)
+                        }
+                    }
                 }
             }
         }
@@ -134,7 +176,7 @@ fun WalletTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-fun BalanceCard() {
+fun BalanceCard(balance: Double) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -208,8 +250,8 @@ fun BalanceCard() {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "$1,250.00",
-                        fontSize = 34.sp,
+                        NumberFormat.getCurrencyInstance(Locale("vi", "VN")).format(balance),
+                        fontSize = 32.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = PrimaryGreen,
                         letterSpacing = (-1).sp

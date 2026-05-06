@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Stadium
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,19 +52,38 @@ data class MatchHistoryItem(
 
 enum class MatchResultType { VICTORY, DEFEAT }
 
-// --- Dummy Data ---
-val matchHistoryData = listOf(
-    MatchHistoryItem("RANKED", "Today, 10:30 AM", MatchResultType.VICTORY, "Marcus T.", "11-9, 11-8", "STRAIGHT SETS", "Sunset Cliffs, Court 1", 24),
-    MatchHistoryItem("RANKED", "Yesterday", MatchResultType.DEFEAT, "Sarah J.", "9-11, 11-4, 8-11", "3 SETS", "Downtown Rec, Court 4", -15),
-    MatchHistoryItem("CASUAL", "Oct 20", MatchResultType.VICTORY, "Alex Chen", "11-5, 11-2", "STRAIGHT SETS", "Private Club, Main Court", null),
-    MatchHistoryItem("RANKED", "Oct 18", MatchResultType.VICTORY, "Mike Ross", "13-11, 11-9", "STRAIGHT SETS", "City Center Courts, Court 2", 18)
-)
-
 @Composable
 fun MatchHistoryScreen(
     navController: NavController,
+    viewModel: com.example.pickleball.viewmodel.ProfileViewModel,
     onBackClick: () -> Unit
 ) {
+    val eloHistoryState by viewModel.eloHistoryState.collectAsState()
+
+    val matchHistoryData = when (eloHistoryState) {
+        is com.example.pickleball.data.model.UiState.Success -> {
+            val records = (eloHistoryState as com.example.pickleball.data.model.UiState.Success).data
+            records.map { record ->
+                MatchHistoryItem(
+                    type = "RANKED",
+                    date = record.createdAt ?: "Unknown Date",
+                    result = if (record.eloChange >= 0) MatchResultType.VICTORY else MatchResultType.DEFEAT,
+                    opponent = record.reason ?: "Ranked Match", // using reason as fallback opponent/title
+                    score = "---", // Score not available in EloHistoryRecord
+                    setInfo = "Match ID: ${record.rankedMatchId ?: "-"}",
+                    location = "Unknown Court",
+                    eloChange = record.eloChange
+                )
+            }
+        }
+        else -> emptyList() // Fallback or loading state
+    }
+
+    val recentWins = matchHistoryData.filter { it.result == MatchResultType.VICTORY }.size
+    val totalMatches = matchHistoryData.size
+    val recentForm = matchHistoryData.take(5).map { it.result == MatchResultType.VICTORY }
+    val avgEloGain = if (totalMatches > 0) matchHistoryData.sumOf { it.eloChange ?: 0 } / totalMatches.toFloat() else 0f
+
     Scaffold(
         containerColor = Color.White,
         topBar = {
@@ -80,7 +101,7 @@ fun MatchHistoryScreen(
             item { Spacer(modifier = Modifier.height(4.dp)) }
 
             // 1. Recent Form Card
-            item { RecentFormCard() }
+            item { RecentFormCard(recentForm = recentForm, avgEloGain = avgEloGain) }
 
             // 2. List Header
             item {
@@ -93,7 +114,7 @@ fun MatchHistoryScreen(
                         Text("Recent Matches", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = NavyDeep)
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(color = CoolGray, shape = RoundedCornerShape(6.dp)) {
-                            Text("12", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.6f), modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                            Text("${matchHistoryData.size}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyDeep.copy(0.6f), modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                     }
 
@@ -115,11 +136,25 @@ fun MatchHistoryScreen(
             }
 
             // 3. Match List
-            items(matchHistoryData) { match ->
-                MatchHistoryCard(
-                    match = match,
-                    onClick = { navController.navigate(Routes.MATCH_ANALYSIS) }
-                )
+            if (eloHistoryState is com.example.pickleball.data.model.UiState.Loading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = PrimaryGreen)
+                    }
+                }
+            } else if (matchHistoryData.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text("No ranked matches played yet.", color = NavyDeep.copy(0.5f))
+                    }
+                }
+            } else {
+                items(matchHistoryData) { match ->
+                    MatchHistoryCard(
+                        match = match,
+                        onClick = { navController.navigate(Routes.MATCH_ANALYSIS) }
+                    )
+                }
             }
         }
     }
@@ -155,7 +190,7 @@ fun MatchHistoryTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-fun RecentFormCard() {
+fun RecentFormCard(recentForm: List<Boolean>, avgEloGain: Float) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -186,11 +221,10 @@ fun RecentFormCard() {
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FormBadge(isWin = true)
-                    FormBadge(isWin = true)
-                    FormBadge(isWin = false)
-                    FormBadge(isWin = true)
-                    FormBadge(isWin = false)
+                    val displayForm = if (recentForm.isEmpty()) List(5) { false } else recentForm.take(5)
+                    displayForm.forEach { isWin ->
+                        FormBadge(isWin = isWin)
+                    }
                 }
             }
 
@@ -202,9 +236,18 @@ fun RecentFormCard() {
                 Text("AVG ELO GAIN", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(0.6f), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.TrendingUp, null, tint = PrimaryGreen, modifier = Modifier.size(20.dp))
+                    val sign = if (avgEloGain >= 0) "+" else ""
+                    val formattedGain = String.format("%.1f", avgEloGain)
+                    val iconTint = if (avgEloGain >= 0) PrimaryGreen else DefeatRed
+                    
+                    Icon(
+                        if (avgEloGain >= 0) Icons.Default.TrendingUp else Icons.Default.ArrowDownward, 
+                        null, 
+                        tint = iconTint, 
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(2.dp))
-                    Text("+14.2", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = PrimaryGreen)
+                    Text("$sign$formattedGain", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = iconTint)
                 }
             }
         }

@@ -31,14 +31,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.example.pickleball.navigation.Routes
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.data.model.UiState
+import com.example.pickleball.data.model.RankedMatchDTO
+import com.example.pickleball.viewmodel.RankedMatchViewModel
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.collectAsState
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun MatchFoundScreen(
-    navController: NavController
+    navController: NavController,
+    viewModel: RankedMatchViewModel = hiltViewModel()
 ) {
     // Countdown Logic
     var timeLeft by remember { mutableIntStateOf(10) }
@@ -56,6 +64,35 @@ fun MatchFoundScreen(
         }
         navController.popBackStack()
     }
+    
+    val matchmakingState by viewModel.matchmakingState.collectAsState()
+    val acceptMatchState by viewModel.acceptMatchState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(acceptMatchState) {
+        when (acceptMatchState) {
+            is UiState.Success -> {
+                viewModel.resetAcceptMatchState()
+                navController.navigate(Routes.MATCH_STARTING) {
+                    popUpTo(Routes.MATCH_FOUND) { inclusive = true }
+                }
+            }
+            is UiState.Error -> {
+                Toast.makeText(context, (acceptMatchState as UiState.Error).message, Toast.LENGTH_SHORT).show()
+                viewModel.resetAcceptMatchState()
+            }
+            else -> {}
+        }
+    }
+    
+    val matchData = (matchmakingState as? UiState.Success<RankedMatchDTO>)?.data
+    val currentElo = matchData?.playerCandidates?.firstOrNull()?.currentElo?.toString() ?: "..."
+    val courtInfo = matchData?.booking?.venueName ?: "..."
+    
+    // Chia player candidates thành 2 đội
+    val allCandidates = matchData?.playerCandidates ?: emptyList()
+    val teamA = if (allCandidates.size >= 2) allCandidates.take(2).mapNotNull { it.fullName } else listOf("YOU", "PARTNER")
+    val teamB = if (allCandidates.size >= 4) allCandidates.drop(2).mapNotNull { it.fullName } else listOf("OPPONENT 1", "OPPONENT 2")
 
     Scaffold(containerColor = NavyBg) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -80,18 +117,27 @@ fun MatchFoundScreen(
 
                     Spacer(modifier = Modifier.height(30.dp))
 
-                    VersusSection()
+                VersusSection(teamA = teamA, teamB = teamB)
 
                     Spacer(modifier = Modifier.height(40.dp))
 
-                    MatchInfoPanel()
+                    MatchInfoPanel(courtInfo, currentElo)
                 }
 
                 AcceptMatchSection(
                     timeLeft = timeLeft,
                     progress = progress,
-                    onAccept = { navController.navigate(Routes.MATCH_STARTING) },
-                    onDecline = { navController.popBackStack() }
+                    isLoading = acceptMatchState is UiState.Loading,
+                    onAccept = { 
+                        val matchId = matchData?.booking?.id
+                        if (matchId != null) {
+                            viewModel.acceptMatch(matchId.toLong())
+                        }
+                    },
+                    onDecline = {
+                        viewModel.stopMatchmaking()
+                        navController.popBackStack()
+                    }
                 )
             }
         }
@@ -187,7 +233,7 @@ fun ServerBadge() {
 }
 
 @Composable
-fun VersusSection() {
+fun VersusSection(teamA: List<String>, teamB: List<String>) {
     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
         Box(
             contentAlignment = Alignment.Center,
@@ -212,7 +258,7 @@ fun VersusSection() {
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("YOUR TEAM", fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = PrimaryNeon, letterSpacing = 1.sp)
-                Text("PickleRick_99 + Duo", fontFamily = Lexend, fontSize = 10.sp, color = Color.White.copy(0.5f))
+                Text(teamA.joinToString(" + "), fontFamily = Lexend, fontSize = 10.sp, color = Color.White.copy(0.5f))
             }
 
             Spacer(modifier = Modifier.width(20.dp))
@@ -231,21 +277,21 @@ fun VersusSection() {
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("OPPONENTS", fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White, letterSpacing = 1.sp)
-                Text("Ranked Challengers", fontFamily = Lexend, fontSize = 10.sp, color = Color.White.copy(0.5f))
+                Text(teamB.joinToString(" + "), fontFamily = Lexend, fontSize = 10.sp, color = Color.White.copy(0.5f))
             }
         }
     }
 }
 
 @Composable
-fun MatchInfoPanel() {
+fun MatchInfoPanel(courtInfo: String, currentElo: String) {
     Box(modifier = Modifier.width(280.dp).background(NavyBg.copy(0.6f), RoundedCornerShape(12.dp)).border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(12.dp))) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             InfoItem("MODE", "Doubles")
             VerticalDivider()
-            InfoItem("MAP", "Austin, TX")
+            InfoItem("MAP", courtInfo)
             VerticalDivider()
-            InfoItem("MMR", "1250", isHighlight = true)
+            InfoItem("MMR", currentElo, isHighlight = true)
         }
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(colors = listOf(Color.Transparent, PrimaryNeon.copy(0.5f), Color.Transparent))))
     }
@@ -265,7 +311,7 @@ fun VerticalDivider() {
 }
 
 @Composable
-fun AcceptMatchSection(timeLeft: Int, progress: Float, onAccept: () -> Unit, onDecline: () -> Unit) {
+fun AcceptMatchSection(timeLeft: Int, progress: Float, isLoading: Boolean, onAccept: () -> Unit, onDecline: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
@@ -273,17 +319,23 @@ fun AcceptMatchSection(timeLeft: Int, progress: Float, onAccept: () -> Unit, onD
                 .height(60.dp)
                 .shadow(30.dp, spotColor = PrimaryNeon.copy(0.4f), shape = RoundedCornerShape(12.dp))
                 .clip(RoundedCornerShape(12.dp))
-                .background(PrimaryNeon)
-                .clickable { onAccept() }
+                .background(if (isLoading) PrimaryNeon.copy(0.5f) else PrimaryNeon)
+                .clickable(enabled = !isLoading) { onAccept() }
         ) {
             Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(Color.White.copy(0.3f)).align(Alignment.CenterStart))
             Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Box(modifier = Modifier.size(40.dp).background(NavyBg.copy(0.1f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Check, null, tint = NavyBg, modifier = Modifier.size(24.dp))
-                }
-                Text("ACCEPT MATCH", fontFamily = Lexend, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 18.sp, color = NavyBg, letterSpacing = 1.sp)
-                Box(modifier = Modifier.size(32.dp).border(2.dp, NavyBg.copy(0.2f), CircleShape), contentAlignment = Alignment.Center) {
-                    Text("$timeLeft", fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyBg)
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = NavyBg, strokeWidth = 2.dp)
+                    Text("PROCESSING...", fontFamily = Lexend, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 18.sp, color = NavyBg, letterSpacing = 1.sp)
+                    Box(modifier = Modifier.size(32.dp))
+                } else {
+                    Box(modifier = Modifier.size(40.dp).background(NavyBg.copy(0.1f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Check, null, tint = NavyBg, modifier = Modifier.size(24.dp))
+                    }
+                    Text("ACCEPT MATCH", fontFamily = Lexend, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 18.sp, color = NavyBg, letterSpacing = 1.sp)
+                    Box(modifier = Modifier.size(32.dp).border(2.dp, NavyBg.copy(0.2f), CircleShape), contentAlignment = Alignment.Center) {
+                        Text("$timeLeft", fontFamily = Lexend, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = NavyBg)
+                    }
                 }
             }
         }

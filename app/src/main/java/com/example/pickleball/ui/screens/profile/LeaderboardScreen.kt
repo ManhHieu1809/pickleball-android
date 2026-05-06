@@ -67,8 +67,36 @@ val currentUser = LeaderboardUser(42, "You", "Top 15%", 1850, "https://i.pravata
 @Composable
 fun LeaderboardScreen(
     navController: NavController,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    viewModel: com.example.pickleball.viewmodel.LeaderboardViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
+    LaunchedEffect(Unit) {
+        viewModel.loadGlobalLeaderboard()
+    }
+    val state by viewModel.leaderboardState.collectAsState()
+    
+    val realUsers = remember(state) {
+        when (state) {
+            is com.example.pickleball.data.model.UiState.Success -> {
+                val data = (state as com.example.pickleball.data.model.UiState.Success).data.content
+                data.mapIndexed { index, dto ->
+                    LeaderboardUser(
+                        rank = dto.rank ?: (index + 1),
+                        name = dto.fullName ?: "Player ${dto.playerId}",
+                        title = dto.loyaltyTier ?: "Member",
+                        elo = dto.currentElo ?: 1200,
+                        imageUrl = dto.avatarUrl ?: "https://ui-avatars.com/api/?name=${dto.fullName ?: "Player"}&background=random",
+                        trend = 0
+                    )
+                }
+            }
+            else -> emptyList()
+        }
+    }
+    
+    val finalPodium = realUsers.take(3)
+    val finalRest = realUsers.drop(3)
+    
     Scaffold(
         containerColor = Color.White,
         topBar = { LeaderboardTopBar(onBackClick) },
@@ -82,7 +110,7 @@ fun LeaderboardScreen(
         ) {
             // 1. Podium (Top 3)
             item {
-                PodiumSection(podiumUsers)
+                PodiumSection(finalPodium)
             }
 
             // 2. Header List
@@ -99,7 +127,7 @@ fun LeaderboardScreen(
             }
 
             // 3. List Items
-            items(listUsers) { user ->
+            items(finalRest) { user ->
                 RankListItem(user)
             }
         }

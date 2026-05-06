@@ -55,13 +55,16 @@ val GoldColor = Color(0xFFFFD700)
 fun ProfileScreen(
     navController: NavController,
     onBackClick: () -> Unit = {},
-    profileViewModel: ProfileViewModel = hiltViewModel()
+    profileViewModel: ProfileViewModel = hiltViewModel(),
+    refereeViewModel: com.example.pickleball.viewmodel.RefereeViewModel = hiltViewModel()
 ) {
     // Load dữ liệu user thật từ API
     LaunchedEffect(Unit) {
         profileViewModel.loadCurrentUser()
+        refereeViewModel.checkRefereeStatus()
     }
     val userState by profileViewModel.userState.collectAsState()
+    val refereeState by refereeViewModel.refereeProfileState.collectAsState()
 
     val displayName = when (userState) {
         is UiState.Success -> (userState as UiState.Success).data.fullName
@@ -118,13 +121,27 @@ fun ProfileScreen(
                     displayLocation = displayLocation,
                     displayRole = displayRole,
                     displayAvatarUrl = displayAvatarUrl,
-                    displayId = displayId
+                    displayId = displayId,
+                    onSettingsClick = {
+                        navController.navigate(Routes.SETTINGS)
+                    }
                 ) }
 
                 // 2. Leaderboard Banner
                 item {
                     Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                         LeaderboardBanner(onClick = { navController.navigate(Routes.LEADERBOARD) })
+                    }
+                }
+
+                // 2.5 Referee Hub Section
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        RefereeHubSection(
+                            state = refereeState,
+                            onTakeQuiz = { navController.navigate(Routes.REFEREE_HUB) },
+                            onRefMatches = { navController.navigate(Routes.REFEREE_DASHBOARD) }
+                        )
                     }
                 }
 
@@ -156,7 +173,11 @@ fun ProfileScreen(
                 // 6. Account
                 item {
                     Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                        AccountSection()
+                        AccountSection(
+                            onSettingsClick = {
+                                navController.navigate(Routes.SETTINGS)
+                            }
+                        )
                     }
                 }
 
@@ -174,7 +195,8 @@ fun ProfileHeaderSection(
     displayLocation: String = "",
     displayRole: String = "Player",
     displayAvatarUrl: String = "",
-    displayId: String = "PKL-..."
+    displayId: String = "PKL-...",
+    onSettingsClick: () -> Unit = {}
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "ping")
     val pingAlpha by infiniteTransition.animateFloat(
@@ -323,7 +345,7 @@ fun ProfileHeaderSection(
 
         // Settings icon
         IconButton(
-            onClick = { },
+            onClick = onSettingsClick,
             modifier = Modifier.size(40.dp)
         ) {
             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = NavyDeep)
@@ -414,7 +436,7 @@ fun QuickActionsGrid(navController: NavController) {
         QuickActionTile(label = "Bookings", icon = Icons.Outlined.CalendarMonth, modifier = Modifier.weight(1f)) {
             navController.navigate(Routes.MY_BOOKINGS)
         }
-        QuickActionTile(label = "History", icon = Icons.Outlined.History, modifier = Modifier.weight(1f)) {
+        QuickActionTile(label = "Match History", icon = Icons.Outlined.History, modifier = Modifier.weight(1f)) {
             navController.navigate(Routes.MATCH_HISTORY)
         }
         QuickActionTile(label = "Awards", icon = Icons.Outlined.EmojiEvents, modifier = Modifier.weight(1f)) {
@@ -687,10 +709,11 @@ fun TitleBadge(
     }
 }
 
+
 // ─── 6. Account Section ──────────────────────────────────────────────────────
 
 @Composable
-fun AccountSection() {
+fun AccountSection(onSettingsClick: () -> Unit = {}) {
     Column {
         Text(
             "ACCOUNT",
@@ -707,7 +730,7 @@ fun AccountSection() {
             shadowElevation = 1.dp
         ) {
             Column {
-                AccountItem(title = "Settings", icon = Icons.Outlined.Tune)
+                AccountItem(title = "Settings", icon = Icons.Outlined.Tune, onClick = onSettingsClick)
                 HorizontalDivider(color = CoolGray.copy(0.6f), thickness = 0.8.dp)
                 AccountItem(title = "Notifications", icon = Icons.Outlined.Notifications)
             }
@@ -716,11 +739,16 @@ fun AccountSection() {
 }
 
 @Composable
-fun AccountItem(title: String, icon: ImageVector) {
+fun AccountItem(
+    title: String,
+    icon: ImageVector,
+    titleColor: Color = NavyDeep,
+    onClick: () -> Unit = {}
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
+            .clickable { onClick() }
             .padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -735,15 +763,13 @@ fun AccountItem(title: String, icon: ImageVector) {
                     .background(CoolGray.copy(0.5f), RoundedCornerShape(9.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = NavyDeep, modifier = Modifier.size(18.dp))
+                Icon(icon, contentDescription = null, tint = titleColor, modifier = Modifier.size(18.dp))
             }
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = NavyDeep)
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = titleColor)
         }
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = NavyDeep.copy(0.3f))
     }
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fun Modifier.blur(radius: androidx.compose.ui.unit.Dp) = this.then(
     Modifier.drawBehind { drawRect(Color.Transparent) }
@@ -785,5 +811,87 @@ fun MeshBackground() {
                     )
                 )
         )
+    }
+}
+
+@Composable
+fun RefereeHubSection(
+    state: UiState<com.example.pickleball.data.model.RefereeProfileDTO?>,
+    onTakeQuiz: () -> Unit,
+    onRefMatches: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(4.dp, RoundedCornerShape(16.dp)),
+        color = Color(0xFF1E293B),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        when (state) {
+            is UiState.Loading -> {
+                Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = PrimaryGreen, modifier = Modifier.size(24.dp))
+                }
+            }
+            is UiState.Success -> {
+                val profile = state.data
+                if (profile == null) {
+                    // Not a referee yet -> Show Registration Banner
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTakeQuiz() }
+                            .padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Shield, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AI REFEREE CERTIFICATION", color = PrimaryGreen, fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 1.sp)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Unlock Referee Mode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Earn tokens by officiating ranked matches.", color = Color.White.copy(0.6f), fontSize = 12.sp)
+                        }
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = PrimaryGreen)
+                    }
+                } else {
+                    // Certified Referee Dashboard
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(20.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Verified, contentDescription = null, tint = GoldColor, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("CERTIFIED REFEREE", color = GoldColor, fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 1.sp)
+                            }
+                            Text("TRUST: ${profile.trustScore ?: 100}", color = PrimaryGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${profile.totalMatchesRefereed ?: 0}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                                Text("MATCHES", color = Color.White.copy(0.5f), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                            }
+                            Button(
+                                onClick = onRefMatches,
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("FIND MATCHES", color = NavyDeep, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            else -> {}
+        }
     }
 }

@@ -31,18 +31,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.example.pickleball.ui.screens.booking.CoolGray
 import com.example.pickleball.ui.theme.*
+import com.example.pickleball.viewmodel.WalletViewModel
 
 @Composable
 fun AddFundsScreen(
     navController: NavController,
+    viewModel: WalletViewModel = hiltViewModel(),
     onBackClick: () -> Unit
 ) {
     var selectedAmount by remember { mutableStateOf<Int?>(50) }
     var customAmount by remember { mutableStateOf("") }
     var selectedPaymentMethod by remember { mutableStateOf("Visa") }
+
+    val walletBalance by viewModel.walletBalance.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.fetchWalletData()
+    }
 
     val totalToPay = if (selectedAmount != null) {
         String.format("%.2f", selectedAmount!!.toDouble())
@@ -58,7 +68,17 @@ fun AddFundsScreen(
             AddFundsTopBar(onBackClick)
         },
         bottomBar = {
-            AddFundsBottomBar(totalToPay = totalToPay)
+            AddFundsBottomBar(
+                totalToPay = totalToPay,
+                isLoading = isLoading,
+                onConfirm = {
+                    val amount = selectedAmount?.toDouble() ?: customAmount.toDoubleOrNull() ?: 0.0
+                    if (amount > 0) {
+                        viewModel.topUp(amount)
+                        navController.popBackStack()
+                    }
+                }
+            )
         }
     ) { paddingValues ->
         Column(
@@ -72,7 +92,7 @@ fun AddFundsScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             // 1. Wallet Info Card
-            WalletInfoCard()
+            WalletInfoCard(walletBalance?.balance ?: 0.0)
 
             // 2. Select Amount Section
             SelectAmountSection(
@@ -131,7 +151,7 @@ fun AddFundsTopBar(onBackClick: () -> Unit) {
 }
 
 @Composable
-fun WalletInfoCard() {
+fun WalletInfoCard(balance: Double = 0.0) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -180,7 +200,7 @@ fun WalletInfoCard() {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "$1,250.00",
+                        java.text.NumberFormat.getCurrencyInstance(java.util.Locale("vi", "VN")).format(balance),
                         fontSize = 32.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = PrimaryGreen,
@@ -447,7 +467,7 @@ fun PaymentMethodItem(
 }
 
 @Composable
-fun AddFundsBottomBar(totalToPay: String) {
+fun AddFundsBottomBar(totalToPay: String, isLoading: Boolean, onConfirm: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color.White,
@@ -471,7 +491,8 @@ fun AddFundsBottomBar(totalToPay: String) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = { /* Handle Add Funds Logic */ },
+                onClick = onConfirm,
+                enabled = !isLoading && totalToPay != "0.00",
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -479,9 +500,13 @@ fun AddFundsBottomBar(totalToPay: String) {
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen, contentColor = NavyDeep),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
             ) {
-                Icon(Icons.Default.Payments, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Confirm & Add Funds", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                if (isLoading) {
+                    CircularProgressIndicator(color = NavyDeep, modifier = Modifier.size(24.dp))
+                } else {
+                    Icon(Icons.Default.Payments, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Confirm & Add Funds", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
             }
         }
     }

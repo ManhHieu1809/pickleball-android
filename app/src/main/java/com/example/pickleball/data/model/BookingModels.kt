@@ -60,3 +60,55 @@ data class CasualMatchDTO(
     val requiredPlayerCount: Int?,
     val candidates: List<PlayerMatchDTO>?
 )
+
+data class RefereeMatchDTO(
+    val userId: Long,
+    val fullName: String?,
+    val trustScore: Double?,
+    val totalMatches: Int?
+)
+
+data class RankedMatchDTO(
+    val booking: Booking,
+    val payment: PaymentInfo?,
+    val depositPerPlayer: Double?,
+    val depositCurrency: String?,
+    val venueFee: Double?,
+    val refereeFee: Double?,
+    val platformFee: Double?,
+    val totalCost: Double?,
+    val currentPlayerCount: Int?,
+    val requiredPlayerCount: Int?,
+    val playerCandidates: List<PlayerMatchDTO>?,
+    val refereeAssigned: Boolean?,
+    val assignedReferee: RefereeMatchDTO?,
+    val refereeCandidates: List<RefereeMatchDTO>?,
+    val rankedMatchId: Long?,
+    val matchStatus: String?
+)
+
+data class CheckInRequest(
+    val userId: Long,
+    val checkInMethod: String = "GPS",
+    val latitude: Double,
+    val longitude: Double
+)
+
+data class SubmitMatchResultRequest(
+    val refereeUserId: Long,
+    val teamAScore: Int,
+    val teamBScore: Int,
+    val winningTeam: String
+)
+
+data class ConfirmMatchResultRequest(
+    val userId: Long,
+    val isConfirmed: Boolean
+)
+
+data class SubmitDisputeRequest(
+    val rankedMatchId: Long,
+    val reportingPlayerId: Long,
+    val reason: String,
+    val evidence: String? = null
+)

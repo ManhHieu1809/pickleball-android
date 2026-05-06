@@ -60,7 +60,9 @@ fun FindMatchScreen(
         bookingViewModel.loadAvailableCasualMatches()
     }
 
-    val matches = (matchesState as? UiState.Success<List<CasualMatchDTO>>)?.data ?: emptyList()
+    val isLoading = matchesState is UiState.Loading
+    val isSuccess = matchesState is UiState.Success
+    val currentMatches = (matchesState as? UiState.Success)?.data ?: emptyList()
     Scaffold(
         containerColor = Color.White,
         topBar = { FindMatchTopBar(onBackClick) },
@@ -118,23 +120,22 @@ fun FindMatchScreen(
                 contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item { SegmentedFilter() }
                 item { HorizontalChipList() }
 
-                if (matchesState is UiState.Loading) {
+                if (isLoading) {
                     item {
                         Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = PrimaryGreen)
                         }
                     }
-                } else if (matches.isEmpty() && matchesState is UiState.Success) {
+                } else if (currentMatches.isEmpty() && isSuccess) {
                     item {
                         Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Text("No casual matches available right now.", color = NavyDeep.copy(0.6f))
+                            Text("No matches available right now.", color = NavyDeep.copy(0.6f))
                         }
                     }
                 } else {
-                    items(matches) { match ->
+                    items(currentMatches) { match ->
                         MatchCardDynamic(
                             match = match,
                             onClick = { onMatchClick(match.booking.id.toString()) }
@@ -235,41 +236,6 @@ fun FindMatchTopBar(onBackClick: () -> Unit) {
             }
         }
         HorizontalDivider(color = CoolGray.copy(alpha = 0.5f), modifier = Modifier.padding(top = 16.dp))
-    }
-}
-
-@Composable
-fun SegmentedFilter() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(CoolGray.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-            .padding(4.dp)
-    ) {
-        Button(
-            onClick = {},
-            modifier = Modifier.weight(1f).height(36.dp),
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = NavyDeep),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
-            contentPadding = PaddingValues(0.dp)
-        ) {
-            Text("Casual", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-        }
-        TextButton(
-            onClick = {},
-            modifier = Modifier.weight(1f).height(36.dp),
-            contentPadding = PaddingValues(0.dp)
-        ) {
-            Text("Ranked", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = NavyDeep.copy(0.6f))
-        }
-        TextButton(
-            onClick = {},
-            modifier = Modifier.weight(1f).height(36.dp),
-            contentPadding = PaddingValues(0.dp)
-        ) {
-            Text("Tournament", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = NavyDeep.copy(0.6f))
-        }
     }
 }
 

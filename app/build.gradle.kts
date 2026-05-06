@@ -89,6 +89,7 @@ dependencies {
 
     // Google Sign In
     implementation(libs.play.services.auth)
+    implementation(libs.play.services.location)
 
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.bundles.coilCompose)

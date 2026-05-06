@@ -14,12 +14,12 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
-@Module
+@Module 
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
     // TODO: Change this to your actual server URL
-    private const val BASE_URL = "http://192.168.32.102:8080/api/"
+    private const val BASE_URL = "http://192.168.32.103:8080/api/"
 
     @Provides
     @Singleton
@@ -87,4 +87,24 @@ object NetworkModule {
     @Singleton
     fun provideBookingApiService(retrofit: Retrofit): BookingApiService =
         retrofit.create(BookingApiService::class.java)
+
+    @Provides
+    @Singleton
+    fun providePlayerApiService(retrofit: Retrofit): PlayerApiService =
+        retrofit.create(PlayerApiService::class.java)
+
+    @Provides
+    @Singleton
+    fun provideLeaderboardApiService(retrofit: Retrofit): LeaderboardApiService =
+        retrofit.create(LeaderboardApiService::class.java)
+
+    @Provides
+    @Singleton
+    fun provideRefereeApiService(retrofit: Retrofit): RefereeApiService =
+        retrofit.create(RefereeApiService::class.java)
+
+    @Provides
+    @Singleton
+    fun provideWalletApiService(retrofit: Retrofit): WalletApiService =
+        retrofit.create(WalletApiService::class.java)
 }
